@@ -1,0 +1,45 @@
+{
+  "format": "mauvely-device-v1",
+  "note": "Ed25519; key = 32-byte seed; public_key and signature base64url unpadded. Shared by os-agent and website-devices; change both together.",
+  "vectors": [
+    {
+      "name": "enrol",
+      "seed_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+      "public_key": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+      "method": "POST",
+      "path": "/api/agent/v1/enrol",
+      "timestamp": 1760400000,
+      "nonce": "AAECAwQFBgcICQoLDA0ODw",
+      "body": "{\"token\":\"mvd_test\",\"public_key\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"hostname\":\"office-07\"}",
+      "body_sha256": "0b9f88e00a509bef16236efd3b3345319bb71673f40c46d632b4e14f95b7cd96",
+      "message": "mauvely-device-v1\nPOST\n/api/agent/v1/enrol\n1760400000\nAAECAwQFBgcICQoLDA0ODw\n0b9f88e00a509bef16236efd3b3345319bb71673f40c46d632b4e14f95b7cd96",
+      "signature": "GMVNqV_yu_K_QE93Gw2htPtnxz6gYMupOO6C2TySSGom_kmiCN0vuCfapHBUcRs7mTBTdysNY_qUs_L5EmT_Ag"
+    },
+    {
+      "name": "checkin",
+      "seed_hex": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+      "public_key": "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw",
+      "method": "POST",
+      "path": "/api/agent/v1/checkin",
+      "timestamp": 1760400900,
+      "nonce": "EBESExQVFhcYGRobHB0eHw",
+      "body": "{\"booted_image\":\"localhost/mauvely-os:stable\",\"remotes\":[\"mauvely\"],\"flatpaks\":[],\"last_apply\":{\"ok\":true,\"errors\":[]},\"agent_version\":\"0.1.0\"}",
+      "body_sha256": "b7c670e8fb180ae89a9fbaa03a33fafebb3e3f57ca91399b6ba1aecc2fea78ef",
+      "message": "mauvely-device-v1\nPOST\n/api/agent/v1/checkin\n1760400900\nEBESExQVFhcYGRobHB0eHw\nb7c670e8fb180ae89a9fbaa03a33fafebb3e3f57ca91399b6ba1aecc2fea78ef",
+      "signature": "RX_RJNsdhrha0Ql3nXKcYoL4i3M8dAUK3me1_gVMZOV_Q062n5t-kvk2hM3A728C_FDonDyHSIGZpdOrRWf3Aw"
+    },
+    {
+      "name": "empty-body-with-query",
+      "seed_hex": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+      "public_key": "_FHNjmIYoaONpH7QAjDwWAgW7RO6MwOsXeuRFUiQgCU",
+      "method": "GET",
+      "path": "/api/agent/v1/checkin?probe=1",
+      "timestamp": 1760401800,
+      "nonce": "ICEiIyQlJicoKSorLC0uLw",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "message": "mauvely-device-v1\nGET\n/api/agent/v1/checkin?probe=1\n1760401800\nICEiIyQlJicoKSorLC0uLw\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "0Xpus6PEsgZvgGWT_R0FfpSDgbW4_7BeG1pa0Q7zM2gBHuyjLdNWryrTuTVaSzxkYJsXgT8Lgm0WrbtXoL7wBw"
+    }
+  ]
+}
