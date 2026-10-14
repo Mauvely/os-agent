@@ -83,13 +83,19 @@ mod tests {
     #[test]
     fn parses_cpuinfo() {
         let s = "processor\t: 0\nvendor_id\t: AuthenticAMD\nmodel name\t: AMD Ryzen 9 7900X 12-Core Processor\n";
-        assert_eq!(cpu_model(s).as_deref(), Some("AMD Ryzen 9 7900X 12-Core Processor"));
+        assert_eq!(
+            cpu_model(s).as_deref(),
+            Some("AMD Ryzen 9 7900X 12-Core Processor")
+        );
         assert_eq!(cpu_model("processor : 0\n"), None);
     }
 
     #[test]
     fn parses_meminfo() {
-        assert_eq!(memory_mb("MemTotal:       16384000 kB\nMemFree: 1 kB\n"), Some(16000));
+        assert_eq!(
+            memory_mb("MemTotal:       16384000 kB\nMemFree: 1 kB\n"),
+            Some(16000)
+        );
         assert_eq!(memory_mb("MemFree: 1 kB\n"), None);
     }
 

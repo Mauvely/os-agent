@@ -103,7 +103,10 @@ mod tests {
 
     #[test]
     fn switch_never_applies() {
-        assert_eq!(switch_argv("ghcr.io/mauvely/os:next").unwrap(), ["bootc", "switch", "ghcr.io/mauvely/os:next"]);
+        assert_eq!(
+            switch_argv("ghcr.io/mauvely/os:next").unwrap(),
+            ["bootc", "switch", "ghcr.io/mauvely/os:next"]
+        );
         assert!(switch_argv("--apply").is_err());
     }
 }

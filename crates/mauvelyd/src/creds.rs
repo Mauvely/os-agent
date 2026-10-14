@@ -29,7 +29,11 @@ impl Creds for SystemdCreds {
 }
 
 pub(crate) fn seal_argv(tpm2: bool) -> Vec<String> {
-    let key = if tpm2 { "--with-key=tpm2" } else { "--with-key=host" };
+    let key = if tpm2 {
+        "--with-key=tpm2"
+    } else {
+        "--with-key=host"
+    };
     argv(&["systemd-creds", "encrypt", NAME, key, "-", "-"])
 }
 
@@ -45,9 +49,25 @@ mod tests {
     fn tpm_when_present_host_otherwise() {
         assert_eq!(
             seal_argv(true),
-            ["systemd-creds", "encrypt", "--name=mauvely-device-key", "--with-key=tpm2", "-", "-"]
+            [
+                "systemd-creds",
+                "encrypt",
+                "--name=mauvely-device-key",
+                "--with-key=tpm2",
+                "-",
+                "-"
+            ]
         );
         assert_eq!(seal_argv(false)[3], "--with-key=host");
-        assert_eq!(unseal_argv(), ["systemd-creds", "decrypt", "--name=mauvely-device-key", "-", "-"]);
+        assert_eq!(
+            unseal_argv(),
+            [
+                "systemd-creds",
+                "decrypt",
+                "--name=mauvely-device-key",
+                "-",
+                "-"
+            ]
+        );
     }
 }

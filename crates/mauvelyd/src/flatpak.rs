@@ -99,7 +99,11 @@ pub(crate) fn remotes_argv() -> Vec<String> {
     ])
 }
 
-pub(crate) fn remote_add_argv(name: &str, url: &str, key: &std::path::Path) -> Result<Vec<String>, Error> {
+pub(crate) fn remote_add_argv(
+    name: &str,
+    url: &str,
+    key: &std::path::Path,
+) -> Result<Vec<String>, Error> {
     operand("remote", name)?;
     operand("remote URL", url)?;
     Ok(vec![
@@ -113,7 +117,11 @@ pub(crate) fn remote_add_argv(name: &str, url: &str, key: &std::path::Path) -> R
     ])
 }
 
-pub(crate) fn remote_modify_argv(name: &str, url: &str, key: &std::path::Path) -> Result<Vec<String>, Error> {
+pub(crate) fn remote_modify_argv(
+    name: &str,
+    url: &str,
+    key: &std::path::Path,
+) -> Result<Vec<String>, Error> {
     operand("remote", name)?;
     operand("remote URL", url)?;
     Ok(vec![
@@ -162,7 +170,9 @@ fn app_ref(id: &str, branch: &str) -> Result<String, Error> {
     operand("app", id)?;
     operand("branch", branch)?;
     if id.contains('/') || branch.contains('/') {
-        return Err(Error::Invalid(format!("app {id:?} branch {branch:?} is not valid")));
+        return Err(Error::Invalid(format!(
+            "app {id:?} branch {branch:?} is not valid"
+        )));
     }
     Ok(format!("{id}//{branch}"))
 }
@@ -219,7 +229,8 @@ struct KeyFile {
 impl KeyFile {
     fn write(key: &[u8]) -> Result<Self, Error> {
         let suffix: u64 = rand::random();
-        let path = std::env::temp_dir().join(format!("mauvelyd-{}-{suffix:016x}.gpg", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("mauvelyd-{}-{suffix:016x}.gpg", std::process::id()));
         let mut f = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -266,19 +277,59 @@ mod tests {
     fn argv_shapes() {
         assert_eq!(
             install_argv("mauvely", "net.mauvely.compose", "stable").unwrap(),
-            ["flatpak", "install", "--system", "-y", "--noninteractive", "mauvely", "net.mauvely.compose//stable"]
+            [
+                "flatpak",
+                "install",
+                "--system",
+                "-y",
+                "--noninteractive",
+                "mauvely",
+                "net.mauvely.compose//stable"
+            ]
         );
         assert_eq!(
             uninstall_argv("org.mozilla.firefox", "stable").unwrap(),
-            ["flatpak", "uninstall", "--system", "-y", "--noninteractive", "org.mozilla.firefox//stable"]
+            [
+                "flatpak",
+                "uninstall",
+                "--system",
+                "-y",
+                "--noninteractive",
+                "org.mozilla.firefox//stable"
+            ]
         );
         assert_eq!(
-            remote_add_argv("flathub", "https://dl.flathub.org/repo/", Path::new("/tmp/k")).unwrap(),
-            ["flatpak", "remote-add", "--system", "--if-not-exists", "--gpg-import=/tmp/k", "flathub", "https://dl.flathub.org/repo/"]
+            remote_add_argv(
+                "flathub",
+                "https://dl.flathub.org/repo/",
+                Path::new("/tmp/k")
+            )
+            .unwrap(),
+            [
+                "flatpak",
+                "remote-add",
+                "--system",
+                "--if-not-exists",
+                "--gpg-import=/tmp/k",
+                "flathub",
+                "https://dl.flathub.org/repo/"
+            ]
         );
         assert_eq!(
-            remote_modify_argv("flathub", "https://dl.flathub.org/repo/", Path::new("/tmp/k")).unwrap(),
-            ["flatpak", "remote-modify", "--system", "--url=https://dl.flathub.org/repo/", "--gpg-import=/tmp/k", "flathub"]
+            remote_modify_argv(
+                "flathub",
+                "https://dl.flathub.org/repo/",
+                Path::new("/tmp/k")
+            )
+            .unwrap(),
+            [
+                "flatpak",
+                "remote-modify",
+                "--system",
+                "--url=https://dl.flathub.org/repo/",
+                "--gpg-import=/tmp/k",
+                "flathub"
+            ]
         );
     }
 
@@ -298,7 +349,11 @@ mod tests {
         assert_eq!(apps.len(), 2);
         assert_eq!(
             apps[1],
-            App { id: "net.mauvely.compose".into(), branch: "stable".into(), remote: "mauvely".into() }
+            App {
+                id: "net.mauvely.compose".into(),
+                branch: "stable".into(),
+                remote: "mauvely".into()
+            }
         );
         assert!(parse_installed(b"").unwrap().is_empty());
         assert!(parse_installed(b"just-one-column\n").is_err());
@@ -307,7 +362,13 @@ mod tests {
     #[test]
     fn parses_remotes_output() {
         let r = parse_remotes(b"flathub\thttps://dl.flathub.org/repo/\n").unwrap();
-        assert_eq!(r, [Remote { name: "flathub".into(), url: "https://dl.flathub.org/repo/".into() }]);
+        assert_eq!(
+            r,
+            [Remote {
+                name: "flathub".into(),
+                url: "https://dl.flathub.org/repo/".into()
+            }]
+        );
     }
 
     #[test]

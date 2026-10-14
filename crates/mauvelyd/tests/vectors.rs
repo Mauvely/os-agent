@@ -15,7 +15,10 @@ fn seed(hex: &str) -> [u8; 32] {
 
 #[test]
 fn signing_vectors() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors/signing.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/vectors/signing.json"
+    );
     let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(doc["format"], signing::FORMAT);
     let vectors = doc["vectors"].as_array().unwrap();
@@ -28,8 +31,16 @@ fn signing_vectors() {
         let body = s("body").as_bytes();
         let ts = v["timestamp"].as_u64().unwrap();
 
-        assert_eq!(signing::public_key(&key), s("public_key"), "{name}: public key");
-        assert_eq!(signing::sha256_hex(body), s("body_sha256"), "{name}: body hash");
+        assert_eq!(
+            signing::public_key(&key),
+            s("public_key"),
+            "{name}: public key"
+        );
+        assert_eq!(
+            signing::sha256_hex(body),
+            s("body_sha256"),
+            "{name}: body hash"
+        );
         assert_eq!(
             signing::message(s("method"), s("path"), ts, s("nonce"), body),
             s("message"),

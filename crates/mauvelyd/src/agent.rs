@@ -119,11 +119,10 @@ impl<'a> Agent<'a> {
             .ok_or_else(|| Error::Invalid("not enrolled".into()))?;
         let key_path = paths.key();
         let sealed = std::fs::read(&key_path).map_err(|e| Error::io(&key_path, e))?;
-        let seed: [u8; 32] = host
-            .creds
-            .unseal(&sealed)?
-            .try_into()
-            .map_err(|_| Error::Invalid(format!("{}: not a 32-byte seed", key_path.display())))?;
+        let seed: [u8; 32] =
+            host.creds.unseal(&sealed)?.try_into().map_err(|_| {
+                Error::Invalid(format!("{}: not a 32-byte seed", key_path.display()))
+            })?;
         let managed = state::read_json::<Managed>(&paths.managed())?.unwrap_or_default();
         Ok(Agent {
             client: Client::new(&server),
@@ -153,7 +152,7 @@ impl<'a> Agent<'a> {
             }
             Ok(Outcome::Revoked) => Tick::Revoked,
             Err(e) => {
-                let wait = schedule::jitter(self.backoff.next());
+                let wait = schedule::jitter(self.backoff.fail());
                 eprintln!("check-in failed: {e}; retrying in {}s", wait.as_secs());
                 Tick::Sleep(wait)
             }
@@ -252,7 +251,7 @@ pub fn run(
             }
             Err(e) => eprintln!("enrolment failed: {e}"),
         }
-        sleep(schedule::jitter(backoff.next()));
+        sleep(schedule::jitter(backoff.fail()));
     }
 
     let mut agent = Agent::load(paths.clone(), host)?;
@@ -268,5 +267,373 @@ pub fn run(
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::Duration;
+
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
+    use serde_json::Value;
+
+    use super::*;
+    use crate::facts::Hardware;
+    use crate::fake::{Captured, FakeBootc, FakeCreds, FakeFlatpak, FakeServer, TempDir, app};
+
+    const TOKEN: &str = "mvd_secret_token_value";
+    const ENROLLED: &str = r#"{"device_id":"dev_1","org":{"id":"org_1","slug":"northgate"},"collection_id":null,"server_time":1760400000}"#;
+
+    fn setup(dir: &TempDir, server: &str, token: Option<&str>) -> Paths {
+        let paths = Paths {
+            config_dir: dir.path().join("etc"),
+            state_dir: dir.path().join("state"),
+        };
+        fs::create_dir_all(&paths.config_dir).unwrap();
+        fs::write(paths.server(), format!("{server}\n")).unwrap();
+        if let Some(t) = token {
+            fs::write(paths.enrol(), format!("{t}\n")).unwrap();
+        }
+        paths
+    }
+
+    fn facts() -> Facts {
+        Facts {
+            hostname: "office-07".into(),
+            serial: Some("SN-0042".into()),
+            hardware: Hardware {
+                vendor: Some("QEMU".into()),
+                model: Some("Standard PC".into()),
+                cpu: Some("Virtual CPU".into()),
+                memory_mb: Some(8192),
+                tpm2: true,
+                secure_boot: true,
+            },
+        }
+    }
+
+    /// Checks the signature against `public_key`, rebuilding the message from
+    /// the brief rather than from `signing::message`.
+    fn verify(req: &Captured, public_key: &str) {
+        let h = |n: &str| req.header(n).unwrap_or_else(|| panic!("missing {n}"));
+        let ts: u64 = h("X-Mauvely-Timestamp").parse().unwrap();
+        assert!(api::now().abs_diff(ts) < 60, "timestamp {ts} is not now");
+        let nonce = h("X-Mauvely-Nonce");
+        assert_eq!(URL_SAFE_NO_PAD.decode(nonce).unwrap().len(), 16);
+        let msg = format!(
+            "mauvely-device-v1\n{}\n{}\n{ts}\n{nonce}\n{}",
+            req.method,
+            req.url,
+            signing::sha256_hex(&req.body)
+        );
+        let pk: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(public_key)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let sig = Signature::from_slice(&URL_SAFE_NO_PAD.decode(h("X-Mauvely-Signature")).unwrap())
+            .unwrap();
+        VerifyingKey::from_bytes(&pk)
+            .unwrap()
+            .verify_strict(msg.as_bytes(), &sig)
+            .expect("signature verifies");
+    }
+
+    fn body(req: &Captured) -> Value {
+        serde_json::from_slice(&req.body).unwrap()
+    }
+
+    /// An enrolled state directory, as a 201 leaves it.
+    fn enrolled(dir: &TempDir, server: &str) -> (Paths, SigningKey) {
+        let paths = setup(dir, server, None);
+        let seed = [9u8; 32];
+        state::write_private(&paths.key(), &FakeCreds.seal(&seed).unwrap()).unwrap();
+        state::write_json(
+            &paths.device(),
+            &Device {
+                device_id: "dev_1".into(),
+                org_slug: "northgate".into(),
+            },
+        )
+        .unwrap();
+        (paths, SigningKey::from_bytes(&seed))
+    }
+
+    #[test]
+    fn enrol_201_stores_the_device_and_deletes_the_token() {
+        let server = FakeServer::start(vec![(201, ENROLLED.into())]);
+        let dir = TempDir::new();
+        let paths = setup(&dir, &server.base, Some(TOKEN));
+        let (fp, bc) = (
+            FakeFlatpak::default(),
+            FakeBootc::booted("ghcr.io/mauvely/os:stable"),
+        );
+        let host = Host {
+            flatpak: &fp,
+            bootc: &bc,
+            creds: &FakeCreds,
+        };
+
+        let out = enrol(&paths, &host, &facts()).unwrap();
+        assert_eq!(
+            out,
+            Enrolment::Enrolled(Device {
+                device_id: "dev_1".into(),
+                org_slug: "northgate".into()
+            })
+        );
+        assert!(!paths.enrol().exists(), "token deleted");
+        assert!(paths.device().exists());
+
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 1);
+        let req = &reqs[0];
+        assert_eq!(
+            (req.method.as_str(), req.url.as_str()),
+            ("POST", "/api/agent/v1/enrol")
+        );
+        assert_eq!(req.header("X-Mauvely-Device"), None);
+        let b = body(req);
+        let pk = b["public_key"].as_str().unwrap();
+        verify(req, pk);
+        assert_eq!(b["token"], TOKEN);
+        assert_eq!(b["hostname"], "office-07");
+        assert_eq!(b["serial"], "SN-0042");
+        assert_eq!(b["hardware"]["memory_mb"], 8192);
+        assert_eq!(b["hardware"]["tpm2"], true);
+        assert_eq!(b["hardware"]["secure_boot"], true);
+        assert_eq!(b["os"]["booted_image"], "ghcr.io/mauvely/os:stable");
+        assert_eq!(b["os"]["booted_digest"], "sha256:0000");
+        assert_eq!(b["agent_version"], AGENT_VERSION);
+
+        // The sealed key on disk is the key that signed.
+        let sealed = fs::read(paths.key()).unwrap();
+        let seed: [u8; 32] = FakeCreds.unseal(&sealed).unwrap().try_into().unwrap();
+        assert_eq!(signing::public_key(&SigningKey::from_bytes(&seed)), pk);
+
+        // Enrolled already: no request, and the key is not replaced.
+        let again = enrol(&paths, &host, &facts()).unwrap();
+        assert!(matches!(again, Enrolment::Enrolled(_)));
+        assert_eq!(fs::read(paths.key()).unwrap(), sealed);
+    }
+
+    #[test]
+    fn enrol_refusals_keep_the_token() {
+        for (status, code) in [(401, "invalid_token"), (409, "key_in_use")] {
+            let server = FakeServer::start(vec![(status, format!(r#"{{"error":"{code}"}}"#))]);
+            let dir = TempDir::new();
+            let paths = setup(&dir, &server.base, Some(TOKEN));
+            let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+            let host = Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            };
+
+            let out = enrol(&paths, &host, &facts()).unwrap();
+            assert_eq!(out, Enrolment::Refused(code.into()));
+            assert_eq!(state::read_token(&paths).unwrap().as_deref(), Some(TOKEN));
+            assert!(!paths.device().exists());
+            assert_eq!(server.requests().len(), 1);
+        }
+    }
+
+    #[test]
+    fn enrol_without_a_token_sends_nothing() {
+        let dir = TempDir::new();
+        // Nothing listens here; a request would fail the test.
+        let paths = setup(&dir, "http://127.0.0.1:9", None);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        let host = Host {
+            flatpak: &fp,
+            bootc: &bc,
+            creds: &FakeCreds,
+        };
+        assert_eq!(enrol(&paths, &host, &facts()).unwrap(), Enrolment::NoToken);
+        assert!(!paths.key().exists());
+    }
+
+    #[test]
+    fn checkin_reconciles_and_reports_the_result_next_time() {
+        let desired = r#"{
+          "device_id": "dev_1",
+          "desired": {
+            "image": { "ref": "img:next" },
+            "remotes": [{ "name": "flathub", "url": "https://dl.flathub.org/repo/", "gpg_key": "AAEC" }],
+            "apps": [{ "id": "org.mozilla.firefox", "branch": "stable", "remote": "flathub", "state": "installed" },
+                     { "id": "org.broken.App", "branch": "stable", "remote": "flathub", "state": "installed" }]
+          },
+          "interval_s": 900,
+          "server_time": 1760400000
+        }"#;
+        let server = FakeServer::start(vec![(200, desired.into()), (200, desired.into())]);
+        let dir = TempDir::new();
+        let (paths, key) = enrolled(&dir, &server.base);
+        let fp = FakeFlatpak::default();
+        fp.fail_install("org.broken.App");
+        fp.add_system(app("org.kde.kate", "fedora"));
+        let bc = FakeBootc::booted("img:stable");
+        let host = Host {
+            flatpak: &fp,
+            bootc: &bc,
+            creds: &FakeCreds,
+        };
+        let mut agent = Agent::load(paths.clone(), host).unwrap();
+
+        let Tick::Sleep(d) = agent.tick() else {
+            panic!("revoked")
+        };
+        assert!(
+            d >= Duration::from_secs(810) && d <= Duration::from_secs(990),
+            "{d:?}"
+        );
+        assert!(fp.system_has("org.mozilla.firefox"));
+        assert_eq!(bc.switches(), ["img:next"]);
+        let managed: Managed = state::read_json(&paths.managed()).unwrap().unwrap();
+        assert!(managed.has_app("org.mozilla.firefox", "stable"));
+        assert!(
+            state::read_json::<Status>(&paths.status())
+                .unwrap()
+                .is_some()
+        );
+
+        agent.tick();
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 2);
+        let pk = signing::public_key(&key);
+        for r in &reqs {
+            assert_eq!(
+                (r.method.as_str(), r.url.as_str()),
+                ("POST", "/api/agent/v1/checkin")
+            );
+            assert_eq!(r.header("X-Mauvely-Device"), Some("dev_1"));
+            verify(r, &pk);
+        }
+
+        let first = body(&reqs[0]);
+        assert_eq!(
+            first["last_apply"],
+            serde_json::json!({ "ok": true, "errors": [] })
+        );
+        assert_eq!(first["booted_image"], "img:stable");
+        assert_eq!(first["staged_image"], Value::Null);
+        assert_eq!(first["flatpaks"][0]["id"], "org.kde.kate");
+        assert_eq!(first["flatpaks"][0]["managed"], false);
+
+        let second = body(&reqs[1]);
+        assert_eq!(second["last_apply"]["ok"], false);
+        let errors = second["last_apply"]["errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].as_str().unwrap().contains("org.broken.App"));
+        assert_eq!(second["staged_image"], "img:next");
+        assert_eq!(second["remotes"], serde_json::json!(["flathub"]));
+        let firefox = second["flatpaks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["id"] == "org.mozilla.firefox")
+            .unwrap();
+        assert_eq!(firefox["managed"], true);
+        assert_eq!(firefox["remote"], "flathub");
+        assert_eq!(second["agent_version"], AGENT_VERSION);
+    }
+
+    #[test]
+    fn an_unreachable_server_backs_off_and_a_success_resets() {
+        let ok = r#"{"device_id":"dev_1","desired":{"image":null,"remotes":[],"apps":[]},"interval_s":30}"#;
+        let server = FakeServer::start(vec![
+            (503, "".into()),
+            (502, "<html>".into()),
+            (403, r#"{"error":"forbidden"}"#.into()),
+            (200, ok.into()),
+        ]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        let mut agent = Agent::load(
+            paths,
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+
+        let secs = |t: Tick| match t {
+            Tick::Sleep(d) => d.as_secs_f64(),
+            Tick::Revoked => panic!("revoked"),
+        };
+        let a = secs(agent.tick());
+        let b = secs(agent.tick());
+        // A 403 that is not `revoked` is a failure, not a revocation.
+        let c = secs(agent.tick());
+        assert!((54.0..=66.0).contains(&a), "{a}");
+        assert!((108.0..=132.0).contains(&b), "{b}");
+        assert!((216.0..=264.0).contains(&c), "{c}");
+        // interval_s 30 is floored to 60.
+        let d = secs(agent.tick());
+        assert!((54.0..=66.0).contains(&d), "{d}");
+        assert_eq!(server.requests().len(), 4);
+
+        // Nothing listening at all.
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, "http://127.0.0.1:9");
+        let mut agent = Agent::load(
+            paths,
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+        let e = secs(agent.tick());
+        assert!((54.0..=66.0).contains(&e), "{e}");
+    }
+
+    #[test]
+    fn run_enrols_then_stops_when_revoked() {
+        let server = FakeServer::start(vec![
+            (401, r#"{"error":"invalid_token"}"#.into()),
+            (201, ENROLLED.into()),
+            (403, r#"{"error":"revoked"}"#.into()),
+        ]);
+        let dir = TempDir::new();
+        let paths = setup(&dir, &server.base, Some(TOKEN));
+        let fp = FakeFlatpak::default();
+        fp.add_system(app("org.kde.kate", "fedora"));
+        let bc = FakeBootc::booted("img");
+        let host = Host {
+            flatpak: &fp,
+            bootc: &bc,
+            creds: &FakeCreds,
+        };
+
+        let mut sleeps = Vec::new();
+        run(&paths, host, &facts, &mut |d| sleeps.push(d)).unwrap();
+
+        // One backoff after the refusal; none after the revocation.
+        assert_eq!(sleeps.len(), 1);
+        assert!(sleeps[0] >= Duration::from_secs(54) && sleeps[0] <= Duration::from_secs(66));
+        assert!(!paths.enrol().exists());
+        let reqs = server.requests();
+        let urls: Vec<_> = reqs.iter().map(|r| r.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "/api/agent/v1/enrol",
+                "/api/agent/v1/enrol",
+                "/api/agent/v1/checkin"
+            ]
+        );
+        // The two attempts used different keys.
+        assert_ne!(body(&reqs[0])["public_key"], body(&reqs[1])["public_key"]);
+        // Revoked: the machine is left as it is.
+        assert!(fp.log().is_empty());
+        assert!(fp.system_has("org.kde.kate"));
     }
 }

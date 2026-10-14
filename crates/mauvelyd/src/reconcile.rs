@@ -79,7 +79,11 @@ pub fn reconcile(
     }
 
     // Apps to install. An app already installed counts, whatever its origin.
-    for app in desired.apps.iter().filter(|a| a.state == AppState::Installed) {
+    for app in desired
+        .apps
+        .iter()
+        .filter(|a| a.state == AppState::Installed)
+    {
         if installed.iter().any(|i| i.is(&app.id, &app.branch)) {
             continue;
         }
@@ -189,7 +193,12 @@ mod tests {
     }
 
     /// Takes the inventory from the fake, as the agent does at check-in.
-    fn run(desired: &Desired, fp: &FakeFlatpak, bc: &FakeBootc, managed: &mut Managed) -> LastApply {
+    fn run(
+        desired: &Desired,
+        fp: &FakeFlatpak,
+        bc: &FakeBootc,
+        managed: &mut Managed,
+    ) -> LastApply {
         let inv = Inventory {
             apps: fp.installed().unwrap(),
             remotes: fp.remotes().unwrap(),
@@ -227,7 +236,9 @@ mod tests {
         let bc = FakeBootc::booted("img:stable");
         let mut managed = Managed::default();
         let desired = Desired {
-            image: Some(DesiredImage { reference: "img:stable".into() }),
+            image: Some(DesiredImage {
+                reference: "img:stable".into(),
+            }),
             remotes: vec![remote("mauvely")],
             apps: vec![want("net.mauvely.compose", "mauvely", AppState::Installed)],
         };
@@ -252,7 +263,11 @@ mod tests {
             remotes: vec![remote("flathub")],
             apps: vec![
                 want("org.mozilla.firefox", "flathub", AppState::Installed),
-                want("org.onlyoffice.desktopeditors", "flathub", AppState::Installed),
+                want(
+                    "org.onlyoffice.desktopeditors",
+                    "flathub",
+                    AppState::Installed,
+                ),
             ],
         };
         run(&desired, &fp, &bc, &mut managed);
@@ -261,7 +276,10 @@ mod tests {
         desired.apps.remove(1);
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(r.ok);
-        assert_eq!(fp.log(), ["uninstall org.onlyoffice.desktopeditors//stable"]);
+        assert_eq!(
+            fp.log(),
+            ["uninstall org.onlyoffice.desktopeditors//stable"]
+        );
         assert!(!managed.has_app("org.onlyoffice.desktopeditors", "stable"));
         assert!(fp.system_has("org.kde.kate"));
         assert!(fp.system_has("org.mozilla.firefox"));
@@ -309,7 +327,9 @@ mod tests {
         let bc = FakeBootc::booted("img:stable");
         let mut managed = Managed::default();
         let desired = Desired {
-            image: Some(DesiredImage { reference: "img:next".into() }),
+            image: Some(DesiredImage {
+                reference: "img:next".into(),
+            }),
             remotes: vec![remote("flathub")],
             apps: vec![
                 want("org.broken.App", "flathub", AppState::Installed),
@@ -320,7 +340,11 @@ mod tests {
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(!r.ok);
         assert_eq!(r.errors.len(), 1);
-        assert!(r.errors[0].starts_with("install org.broken.App//stable:"), "{:?}", r.errors);
+        assert!(
+            r.errors[0].starts_with("install org.broken.App//stable:"),
+            "{:?}",
+            r.errors
+        );
         assert!(fp.system_has("org.mozilla.firefox"));
         assert!(!fp.system_has("com.example.Game"));
         assert!(!managed.has_app("org.broken.App", "stable"));
@@ -332,7 +356,9 @@ mod tests {
         let fp = FakeFlatpak::default();
         let mut managed = Managed::default();
         let desired = |r: &str| Desired {
-            image: Some(DesiredImage { reference: r.into() }),
+            image: Some(DesiredImage {
+                reference: r.into(),
+            }),
             ..Desired::default()
         };
 
@@ -384,7 +410,10 @@ mod tests {
         fp.clear_log();
         desired.remotes[0].gpg_key = "BAUG".into();
         run(&desired, &fp, &bc, &mut managed);
-        assert_eq!(fp.log(), ["remote-modify mauvely https://mauvely.example/repo key=040506"]);
+        assert_eq!(
+            fp.log(),
+            ["remote-modify mauvely https://mauvely.example/repo key=040506"]
+        );
         assert!(managed.remote("mauvely").unwrap().added);
 
         // Nothing listed: only the remote the agent added goes.

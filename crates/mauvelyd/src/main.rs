@@ -98,7 +98,11 @@ fn status(paths: &Paths) -> Result<(), mauvelyd::Error> {
         }
     }
     let last = match state::read_json::<Status>(&paths.status())? {
-        Some(s) => format!("{} ({}s ago)", utc(s.last_checkin), api::now().saturating_sub(s.last_checkin)),
+        Some(s) => format!(
+            "{} ({}s ago)",
+            utc(s.last_checkin),
+            api::now().saturating_sub(s.last_checkin)
+        ),
         None => "never".into(),
     };
     println!("last check-in: {last}");

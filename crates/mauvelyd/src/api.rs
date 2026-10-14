@@ -221,7 +221,10 @@ mod tests {
         }"#;
         let r: CheckinResponse = serde_json::from_str(body).unwrap();
         assert_eq!(r.interval_s, 900);
-        assert_eq!(r.desired.image.unwrap().reference, "ghcr.io/mauvely/os:stable");
+        assert_eq!(
+            r.desired.image.unwrap().reference,
+            "ghcr.io/mauvely/os:stable"
+        );
         assert_eq!(r.desired.apps[1].state, AppState::Absent);
 
         let r: CheckinResponse = serde_json::from_str(
@@ -233,9 +236,15 @@ mod tests {
 
     #[test]
     fn error_codes() {
-        let r = Reply { status: 403, body: r#"{"error":"revoked"}"#.into() };
+        let r = Reply {
+            status: 403,
+            body: r#"{"error":"revoked"}"#.into(),
+        };
         assert_eq!(r.error_code(), "revoked");
-        let r = Reply { status: 502, body: "<html>".into() };
+        let r = Reply {
+            status: 502,
+            body: "<html>".into(),
+        };
         assert_eq!(r.error_code(), "HTTP 502");
     }
 }

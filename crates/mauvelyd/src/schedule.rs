@@ -32,7 +32,7 @@ pub struct Backoff {
 
 impl Backoff {
     /// The wait after one more failure, before jitter.
-    pub fn next(&mut self) -> u64 {
+    pub fn fail(&mut self) -> u64 {
         let secs = BACKOFF_START_S
             .saturating_mul(1u64 << self.failures.min(32))
             .min(BACKOFF_CAP_S);
@@ -52,13 +52,13 @@ mod tests {
     #[test]
     fn backoff_doubles_to_an_hour() {
         let mut b = Backoff::default();
-        let seq: Vec<u64> = (0..10).map(|_| b.next()).collect();
+        let seq: Vec<u64> = (0..10).map(|_| b.fail()).collect();
         assert_eq!(seq, [60, 120, 240, 480, 960, 1920, 3600, 3600, 3600, 3600]);
         for _ in 0..100 {
-            assert_eq!(b.next(), 3600);
+            assert_eq!(b.fail(), 3600);
         }
         b.reset();
-        assert_eq!(b.next(), 60);
+        assert_eq!(b.fail(), 60);
     }
 
     #[test]
@@ -75,7 +75,10 @@ mod tests {
         let (mut lo, mut hi) = (Duration::MAX, Duration::ZERO);
         for _ in 0..2000 {
             let d = jitter(900);
-            assert!(d >= Duration::from_secs(810) && d <= Duration::from_secs(990), "{d:?}");
+            assert!(
+                d >= Duration::from_secs(810) && d <= Duration::from_secs(990),
+                "{d:?}"
+            );
             lo = lo.min(d);
             hi = hi.max(d);
         }

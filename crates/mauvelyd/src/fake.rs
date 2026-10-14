@@ -71,7 +71,12 @@ impl FakeFlatpak {
         self.0.borrow().user.iter().any(|a| a.id == id)
     }
     pub fn remote_names(&self) -> Vec<String> {
-        self.0.borrow().remotes.iter().map(|r| r.name.clone()).collect()
+        self.0
+            .borrow()
+            .remotes
+            .iter()
+            .map(|r| r.name.clone())
+            .collect()
     }
 }
 
@@ -90,7 +95,8 @@ impl Flatpak for FakeFlatpak {
 
     fn remote_add(&self, name: &str, url: &str, gpg_key: &[u8]) -> Result<(), Error> {
         let mut s = self.0.borrow_mut();
-        s.log.push(format!("remote-add {name} {url} key={}", hex(gpg_key)));
+        s.log
+            .push(format!("remote-add {name} {url} key={}", hex(gpg_key)));
         if !s.remotes.iter().any(|r| r.name == name) {
             s.remotes.push(Remote {
                 name: name.into(),
@@ -102,7 +108,8 @@ impl Flatpak for FakeFlatpak {
 
     fn remote_modify(&self, name: &str, url: &str, gpg_key: &[u8]) -> Result<(), Error> {
         let mut s = self.0.borrow_mut();
-        s.log.push(format!("remote-modify {name} {url} key={}", hex(gpg_key)));
+        s.log
+            .push(format!("remote-modify {name} {url} key={}", hex(gpg_key)));
         let r = s
             .remotes
             .iter_mut()
@@ -287,7 +294,12 @@ impl FakeServer {
                     headers: req
                         .headers()
                         .iter()
-                        .map(|h| (h.field.as_str().as_str().to_owned(), h.value.as_str().to_owned()))
+                        .map(|h| {
+                            (
+                                h.field.as_str().as_str().to_owned(),
+                                h.value.as_str().to_owned(),
+                            )
+                        })
                         .collect(),
                     body: bytes,
                 };
