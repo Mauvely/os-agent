@@ -45,11 +45,21 @@ Small, and none changes the wire format. Each is worth a look in P7.
   Fedora's filtered or disabled Flathub, or the agent needs `--no-filter`.
 - **Apps match on id and branch.** An app installed from another remote
   counts as installed, and nothing migrates it between remotes.
-- **The image is not restaged** when the desired ref is already staged. If
-  the desired ref goes back to the booted one while another image is
-  staged, nothing happens, because the brief compares only with the booted
-  image. The staged image then applies at the next reboot. That needs a
-  decision.
+- **The image (since T4, 2026-10-14):**
+  - A different ref is switched to.
+  - The booted ref is upgraded (`bootc upgrade`). That stages a newer build
+    under the same tag, and is how a device on `stable` gets the next stable.
+  - Either is staged once, then left until a reboot. A newer build pushed
+    while one is staged waits for the reboot after that.
+  - Tried with real bootc 1.16.13 in os-image `proof/t4/`, without
+    `mauvelyd`:
+    - an upgrade with nothing new exits 0 and stages nothing;
+    - an upgrade with a newer signed build stages it;
+    - the image's policy refuses an unsigned one.
+- **Still open:** if the desired ref goes back to the booted one while
+  another image is staged, nothing happens. An upgrade then would follow the
+  staged image, so the agent skips it. The staged image applies at the next
+  reboot. That needs a decision (M3).
 - **Every enrolment attempt uses a fresh key.** A 409 cannot repeat, and a
   201 lost in transit costs one token use.
 - **Backoff** is 60 s, doubling, capped at 1 h. The ±10 % jitter applies

@@ -148,17 +148,27 @@ pub fn reconcile(
     }
     managed.remotes.retain(|m| remotes.contains(&m.name));
 
-    // The image: staged when it differs from the booted one, and not again
-    // once it is staged. Never applied, never rebooted.
+    // The image. A different one is switched to. The booted one is upgraded,
+    // which stages a newer build under the same tag when the registry has one:
+    // that is how a device on `stable` gets the next stable. Either way it is
+    // staged once and then left to wait for a reboot. Never applied, never
+    // rebooted.
     if let Some(want) = &desired.image {
+        let want = want.reference.as_str();
         match &inventory.image {
             None => errors.push("image: bootc status is unavailable".into()),
-            Some(s)
-                if s.booted_image.as_deref() == Some(&want.reference)
-                    || s.staged_image.as_deref() == Some(&want.reference) => {}
+            Some(s) if s.staged_image.as_deref() == Some(want) => {}
+            Some(s) if s.booted_image.as_deref() == Some(want) && s.staged_image.is_none() => {
+                if let Err(e) = bootc.upgrade() {
+                    errors.push(format!("bootc upgrade {want}: {e}"));
+                }
+            }
+            // The booted image is wanted, but another is staged over it. An
+            // upgrade now would follow the staged one, so it waits (HANDOFF).
+            Some(s) if s.booted_image.as_deref() == Some(want) => {}
             Some(_) => {
-                if let Err(e) = bootc.switch(&want.reference) {
-                    errors.push(format!("bootc switch {}: {e}", want.reference));
+                if let Err(e) = bootc.switch(want) {
+                    errors.push(format!("bootc switch {want}: {e}"));
                 }
             }
         }
@@ -352,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn image_is_staged_only_when_it_differs() {
+    fn image_is_switched_or_upgraded_then_left_staged() {
         let fp = FakeFlatpak::default();
         let mut managed = Managed::default();
         let desired = |r: &str| Desired {
@@ -362,10 +372,13 @@ mod tests {
             ..Desired::default()
         };
 
-        // Same as booted: nothing.
+        // Same as booted: asks for a newer build of it at every check-in,
+        // and never switches.
         let bc = FakeBootc::booted("img:stable");
         run(&desired("img:stable"), &fp, &bc, &mut managed);
+        run(&desired("img:stable"), &fp, &bc, &mut managed);
         assert!(bc.switches().is_empty());
+        assert_eq!(bc.upgrades(), 2);
 
         // Different: staged once, then left alone while it waits for a reboot.
         run(&desired("img:next"), &fp, &bc, &mut managed);
@@ -373,9 +386,22 @@ mod tests {
         run(&desired("img:next"), &fp, &bc, &mut managed);
         assert_eq!(bc.switches(), ["img:next"]);
 
+        // Back to the booted one with img:next still staged: no upgrade,
+        // which would follow img:next, and no switch.
+        run(&desired("img:stable"), &fp, &bc, &mut managed);
+        assert_eq!(bc.switches(), ["img:next"]);
+        assert_eq!(bc.upgrades(), 2);
+
         // No image wanted: leave it.
         run(&Desired::default(), &fp, &bc, &mut managed);
         assert_eq!(bc.switches(), ["img:next"]);
+        assert_eq!(bc.upgrades(), 2);
+
+        // A newer build of the booted image is already staged: left alone.
+        let bc = FakeBootc::booted("img:stable");
+        bc.switch("img:stable").unwrap();
+        run(&desired("img:stable"), &fp, &bc, &mut managed);
+        assert_eq!(bc.upgrades(), 0);
 
         // bootc status failed: nothing staged, and it is reported.
         let broken = FakeBootc::broken();

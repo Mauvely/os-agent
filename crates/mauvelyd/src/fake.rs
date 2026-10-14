@@ -161,6 +161,7 @@ impl Flatpak for FakeFlatpak {
 pub struct FakeBootc {
     status: RefCell<Option<bootc::Status>>,
     switches: RefCell<Vec<String>>,
+    upgrades: RefCell<usize>,
 }
 
 impl FakeBootc {
@@ -172,6 +173,7 @@ impl FakeBootc {
                 staged_image: None,
             })),
             switches: RefCell::default(),
+            upgrades: RefCell::default(),
         }
     }
 
@@ -180,11 +182,18 @@ impl FakeBootc {
         FakeBootc {
             status: RefCell::new(None),
             switches: RefCell::default(),
+            upgrades: RefCell::default(),
         }
     }
 
     pub fn switches(&self) -> Vec<String> {
         self.switches.borrow().clone()
+    }
+
+    /// How many times `bootc upgrade` ran. The fake's registry never has a
+    /// newer build, so an upgrade stages nothing.
+    pub fn upgrades(&self) -> usize {
+        *self.upgrades.borrow()
     }
 }
 
@@ -201,6 +210,11 @@ impl Bootc for FakeBootc {
         if let Some(s) = self.status.borrow_mut().as_mut() {
             s.staged_image = Some(image.into());
         }
+        Ok(())
+    }
+
+    fn upgrade(&self) -> Result<(), Error> {
+        *self.upgrades.borrow_mut() += 1;
         Ok(())
     }
 }

@@ -17,6 +17,9 @@ pub trait Bootc {
     fn status(&self) -> Result<Status, Error>;
     /// Stages `image` for the next boot.
     fn switch(&self, image: &str) -> Result<(), Error>;
+    /// Stages a newer build of the image the host already follows, when the
+    /// registry has one, and does nothing when it has not.
+    fn upgrade(&self) -> Result<(), Error>;
 }
 
 /// The real `bootc` CLI.
@@ -30,6 +33,10 @@ impl Bootc for SystemBootc {
     fn switch(&self, image: &str) -> Result<(), Error> {
         run(&switch_argv(image)?, None).map(drop)
     }
+
+    fn upgrade(&self) -> Result<(), Error> {
+        run(&upgrade_argv(), None).map(drop)
+    }
 }
 
 pub(crate) fn switch_argv(image: &str) -> Result<Vec<String>, Error> {
@@ -37,6 +44,11 @@ pub(crate) fn switch_argv(image: &str) -> Result<Vec<String>, Error> {
     // Without `--apply`, `bootc switch` stages and leaves the reboot to the
     // machine's own schedule.
     Ok(argv(&["bootc", "switch", image]))
+}
+
+pub(crate) fn upgrade_argv() -> Vec<String> {
+    // The same: no `--apply`, so it stages and never reboots.
+    argv(&["bootc", "upgrade"])
 }
 
 /// Reads the `BootcHost` document `bootc status --json` prints. A machine not
@@ -108,5 +120,6 @@ mod tests {
             ["bootc", "switch", "ghcr.io/mauvely/os:next"]
         );
         assert!(switch_argv("--apply").is_err());
+        assert_eq!(upgrade_argv(), ["bootc", "upgrade"]);
     }
 }
