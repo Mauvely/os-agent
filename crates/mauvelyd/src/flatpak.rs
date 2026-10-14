@@ -124,10 +124,13 @@ pub(crate) fn remote_modify_argv(
 ) -> Result<Vec<String>, Error> {
     operand("remote", name)?;
     operand("remote URL", url)?;
+    // A remote the server lists is one it means to use, so a disabled one
+    // already on the machine is enabled.
     Ok(vec![
         "flatpak".into(),
         "remote-modify".into(),
         "--system".into(),
+        "--enable".into(),
         format!("--url={url}"),
         format!("--gpg-import={}", key.display()),
         name.into(),
@@ -326,6 +329,7 @@ mod tests {
                 "flatpak",
                 "remote-modify",
                 "--system",
+                "--enable",
                 "--url=https://dl.flathub.org/repo/",
                 "--gpg-import=/tmp/k",
                 "flathub"

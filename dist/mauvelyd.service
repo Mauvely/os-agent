@@ -1,0 +1,45 @@
+[Unit]
+Description=Mauvely device agent
+Documentation=https://github.com/Mauvely/os-agent
+After=network-online.target
+Wants=network-online.target
+# Unprovisioned machines (no installer run) have nothing to talk to.
+ConditionPathExists=/etc/mauvely/server
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/mauvelyd run
+Restart=on-failure
+RestartSec=30s
+StateDirectory=mauvely
+StateDirectoryMode=0700
+
+# Hardening that still lets flatpak, bootc and systemd-creds run as root.
+# A user's --user installs live under /home and stay out of reach.
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# Left out on purpose:
+# - ProtectSystem: bootc switch writes /sysroot and /boot, flatpak writes
+#   /var/lib/flatpak, and systemd-creds may create
+#   /var/lib/systemd/credential.secret.
+# - NoNewPrivileges: it blocks the SELinux domain transitions bootc and
+#   ostree run under on Fedora.
+# - RestrictSUIDSGID: a staged OS image carries setuid binaries (sudo,
+#   passwd), and ostree has to create them.
+# - PrivateDevices, DevicePolicy, ProtectClock: each restricts /dev, and
+#   systemd-creds needs /dev/tpmrm0.
+# - RestrictNamespaces: flatpak runs its triggers in bubblewrap, and ostree
+#   mounts in a namespace of its own.
+# - CapabilityBoundingSet: bootc needs most of root.
+# - UMask=0077: flatpak's repo config and the deployments bootc stages must
+#   stay readable by users. The agent's own files are written 0600 anyway.
+
+[Install]
+WantedBy=multi-user.target

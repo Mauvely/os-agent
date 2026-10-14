@@ -10,16 +10,42 @@ Mauvely superproject.
 - **The signing vectors** in `tests/vectors/` are shared with it. Change both
   sides together.
 
+## Layout
+
+A Cargo workspace with one crate, `crates/mauvelyd`: a library holding the
+logic and a thin binary (`main.rs`). The service unit is
+`dist/mauvelyd.service`.
+
+| Module | Holds |
+|---|---|
+| `signing` | The `mauvely-device-v1` message and the `X-Mauvely-*` headers |
+| `api` | The wire types and the signed `ureq` client |
+| `flatpak`, `bootc`, `creds` | A trait each, the real CLI behind it, and its argv builders and output parsers |
+| `reconcile` | Brief 19's reconcile rules, as one function over the traits |
+| `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
+| `state`, `facts`, `schedule` | Files on disk, hardware facts, backoff and jitter |
+| `fake` | Test doubles and a `tiny_http` fake server, test builds only |
+
 ## Rules
 
 - **The daemon runs as root.** Every external command goes through a trait, so
   it can be faked in tests: `flatpak`, `bootc`, `systemd-creds`. Never shell
-  out with an interpolated string.
+  out with an interpolated string: argv vectors only, built by small
+  functions that are tested without running anything.
+- **A value from the server that starts with `-` is refused** before it
+  reaches an argv (`command::operand`).
+- **Only `--system` Flatpak commands.** A user's `--user` installs are never
+  listed or touched.
 - **PAM and NSS modules never touch the network** (milestone 2). They talk to
   the daemon over its socket, and they fail fast and closed when it does not
   answer.
-- **Never log a device key or an enrolment token.**
+- **Never log a device key or an enrolment token.** The seed travels to
+  `systemd-creds` over stdin, never as an argument or a file.
 - **`cargo test` must pass** without root, a TPM, flatpak or network.
+  `cargo clippy --all-targets -- -D warnings` stays clean; code is
+  `cargo fmt`-formatted.
+- **No async runtime.** It is one loop, and it blocks.
+- `CARGO_BUILD_JOBS=24` at most here, 8 on CI.
 
 ## Handing off
 
