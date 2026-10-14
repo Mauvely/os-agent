@@ -211,7 +211,7 @@ mod tests {
             "image": { "ref": "ghcr.io/mauvely/os:stable" },
             "remotes": [{ "name": "mauvely", "url": "https://flatpak.mauvely.com/repo",
                           "gpg_key": "AAEC" }],
-            "apps": [{ "id": "net.mauvely.compose", "branch": "stable",
+            "apps": [{ "id": "com.mauvely.compose", "branch": "stable",
                        "remote": "mauvely", "state": "installed" },
                      { "id": "org.mozilla.firefox", "branch": "stable",
                        "remote": "flathub", "state": "absent" }]

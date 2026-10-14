@@ -225,7 +225,7 @@ mod tests {
         let desired = Desired {
             image: None,
             remotes: vec![remote("mauvely")],
-            apps: vec![want("net.mauvely.compose", "mauvely", AppState::Installed)],
+            apps: vec![want("com.mauvely.compose", "mauvely", AppState::Installed)],
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert_eq!(r, LastApply::default());
@@ -233,10 +233,10 @@ mod tests {
             fp.log(),
             [
                 "remote-add mauvely https://mauvely.example/repo key=00010203",
-                "install mauvely net.mauvely.compose//stable",
+                "install mauvely com.mauvely.compose//stable",
             ]
         );
-        assert!(managed.has_app("net.mauvely.compose", "stable"));
+        assert!(managed.has_app("com.mauvely.compose", "stable"));
         assert!(managed.remote("mauvely").unwrap().added);
     }
 
@@ -250,7 +250,7 @@ mod tests {
                 reference: "img:stable".into(),
             }),
             remotes: vec![remote("mauvely")],
-            apps: vec![want("net.mauvely.compose", "mauvely", AppState::Installed)],
+            apps: vec![want("com.mauvely.compose", "mauvely", AppState::Installed)],
         };
         run(&desired, &fp, &bc, &mut managed);
         fp.clear_log();

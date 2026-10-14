@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn argv_shapes() {
         assert_eq!(
-            install_argv("mauvely", "net.mauvely.compose", "stable").unwrap(),
+            install_argv("mauvely", "com.mauvely.compose", "stable").unwrap(),
             [
                 "flatpak",
                 "install",
@@ -287,7 +287,7 @@ mod tests {
                 "-y",
                 "--noninteractive",
                 "mauvely",
-                "net.mauvely.compose//stable"
+                "com.mauvely.compose//stable"
             ]
         );
         assert_eq!(
@@ -348,13 +348,13 @@ mod tests {
 
     #[test]
     fn parses_list_output() {
-        let out = b"org.mozilla.firefox\tstable\tflathub\nnet.mauvely.compose\tstable\tmauvely\n";
+        let out = b"org.mozilla.firefox\tstable\tflathub\ncom.mauvely.compose\tstable\tmauvely\n";
         let apps = parse_installed(out).unwrap();
         assert_eq!(apps.len(), 2);
         assert_eq!(
             apps[1],
             App {
-                id: "net.mauvely.compose".into(),
+                id: "com.mauvely.compose".into(),
                 branch: "stable".into(),
                 remote: "mauvely".into()
             }
