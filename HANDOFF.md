@@ -67,6 +67,10 @@ Small, and none changes the wire format. Each is worth a look in P7.
   backs off; the agent does not correct for skew.
 - **Paths move by environment variable** (`MAUVELY_CONFIG_DIR`,
   `MAUVELY_STATE_DIR`), not flags.
+- **A key that no longer unseals** (a cleared TPM, a lost
+  `credential.secret`) makes the service exit and restart every 30 s. There
+  is no automatic way back: delete `/var/lib/mauvely` and enrol again with a
+  new token.
 - **TLS roots are compiled in** (`webpki-roots`), not read from the system. A
   self-hosted server behind a private CA would not be trusted. That matters
   for `workerd` self-hosting in M4, not M1.
