@@ -1,0 +1,31 @@
+not running
+Uninstalling 4/6…
+Uninstalling 5/6…
+Uninstalling 6/6…
+Uninstall complete.
+leftovers in $XDG_RUNTIME_DIR:
+ls: cannot access '/run/user/1000/mauvely*': No such file or directory
+/run/user/1000/app/com.mauvely.assist
+/run/user/1000/app/com.mauvely.compose
+/run/user/1000/app/com.mauvely.play
+/run/user/1000/app/com.mauvely.sotto
+user's a11y bus still answers:
+s "unix:path=/run/user/1000/at-spi/bus_0"
+com.mauvely.assist	assist-origin
+com.mauvely.compose	compose-origin
+com.mauvely.compose	mauvely-test
+com.mauvely.play	play-origin
+com.mauvely.sotto	mauvely-test
+io.qt.qtwebengine.BaseApp	flathub
+org.chromium.Chromium	flathub
+org.chromium.Chromium.Codecs	flathub
+org.freedesktop.Platform	flathub
+org.freedesktop.Platform.GL.default	flathub
+org.freedesktop.Platform.GL.default	flathub
+org.freedesktop.Platform.GL.nvidia-580-178-04	flathub
+org.freedesktop.Platform.VAAPI.nvidia	flathub
+org.freedesktop.Platform.codecs-extra	flathub
+org.gtk.Gtk3theme.Breeze	flathub
+org.kde.Platform	flathub
+org.kde.Sdk	flathub
+org.mozilla.firefox	flathub

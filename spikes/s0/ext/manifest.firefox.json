@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Mauvely S0 spike",
+  "version": "0.0.1",
+  "description": "Spike: native messaging host reachable from the browser's own sandbox.",
+  "browser_specific_settings": { "gecko": { "id": "s0@mauvely.invalid", "strict_min_version": "128.0" } },
+  "permissions": ["nativeMessaging", "cookies"],
+  "host_permissions": ["https://*.mauvely.invalid/*"],
+  "background": { "scripts": ["background.js"] }
+}

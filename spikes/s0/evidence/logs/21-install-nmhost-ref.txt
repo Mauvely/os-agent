@@ -1,0 +1,8 @@
+Looking for matches…
+
+
+ 1.	   	org.chromium.Chromium.NativeMessagingHost.s0	1	i	mauvely-s0	< 634.7 kB
+
+
+Installing…
+Installation complete.

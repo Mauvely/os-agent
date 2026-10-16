@@ -1,0 +1,16 @@
+chromium extension id: acpdompimmaaandoojlmeigfeoljdcpj
+/home/timuri/.cache/mauvely-s0/home/s0ext:
+total 4
+drwxr-xr-x 1 timuri timuri   52 Oct 16 13:02 chromium
+drwxr-xr-x 1 timuri timuri   52 Oct 16 13:02 firefox
+-rw-r--r-- 1 timuri timuri 1962 Oct 16 13:02 s0.xpi
+
+/home/timuri/.cache/mauvely-s0/home/s0ext/chromium:
+total 8
+-rw-r--r-- 1 timuri timuri 3707 Oct 16 13:02 background.js
+-rw-r--r-- 1 timuri timuri  735 Oct 16 13:02 manifest.json
+
+/home/timuri/.cache/mauvely-s0/home/s0ext/firefox:
+total 8
+-rw-r--r-- 1 timuri timuri 3707 Oct 16 13:02 background.js
+-rw-r--r-- 1 timuri timuri  432 Oct 16 13:02 manifest.json

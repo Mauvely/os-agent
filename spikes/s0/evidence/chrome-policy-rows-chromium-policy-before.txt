@@ -1,0 +1,5 @@
+BookmarkBarEnabled | Not set. | Value | Applies to | Level | Status 
+ExtensionInstallForcelist | Not set. | Value | Applies to | Level | Status 
+HomepageLocation | Not set. | Value | Applies to | Level | Status 
+PasswordManagerEnabled | Not set. | Value | Applies to | Level | Status 
+ShowHomeButton | Not set. | Value | Applies to | Level | Status 

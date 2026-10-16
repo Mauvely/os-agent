@@ -1,0 +1,10 @@
+
+These runtimes in installation 'user' are pinned and won't be removed; see flatpak-pin(1):
+  runtime/org.chromium.Chromium.Extension.s0/x86_64/1
+  runtime/org.chromium.Chromium.Extension.s0force/x86_64/1
+  runtime/org.chromium.Chromium.NativeMessagingHost.s0/x86_64/1
+  runtime/org.chromium.Chromium.Policy.s0/x86_64/1
+  runtime/org.kde.Platform/x86_64/6.11
+  runtime/org.kde.Sdk/x86_64/6.11
+  runtime/org.mozilla.firefox.systemconfig/x86_64/stable
+Nothing unused to uninstall

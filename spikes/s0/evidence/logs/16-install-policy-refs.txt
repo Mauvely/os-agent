@@ -1,0 +1,15 @@
+Looking for matches…
+
+
+ 1.	   	org.chromium.Chromium.Extension.s0	1	i	mauvely-s0	< 237 bytes
+ 2.	   	org.chromium.Chromium.Policy.s0	1	i	mauvely-s0	< 210 bytes
+ 3.	   	org.mozilla.firefox.systemconfig	stable	i	mauvely-s0	< 292 bytes
+
+
+Installing 1/3…
+Installing 2/3…
+Installing 3/3…
+Installation complete.
+org.chromium.Chromium.Extension.s0	1	mauvely-s0
+org.chromium.Chromium.Policy.s0	1	mauvely-s0
+org.mozilla.firefox.systemconfig	stable	mauvely-s0

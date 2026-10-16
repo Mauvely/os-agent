@@ -1,0 +1,69 @@
+## host side: /home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:03 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:03 s0host
+{
+  "name": "com.mauvely.s0",
+  "description": "Mauvely S0 spike host",
+  "path": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+  "type": "stdio",
+  "allowed_extensions": ["s0@mauvely.invalid"]
+}
+
+## what the sandbox sees of that directory (no portal, no override beyond the test extension dir):
+HOME=/home/timuri/.cache/mauvely-s0/home
+/home/timuri/.cache/mauvely-s0/home/.mozilla/native-messaging-hosts/:
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:03 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:03 s0host
+
+/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/:
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:03 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:03 s0host
+8
+rw,nosuid,nodev,noatime,compress=zstd:1,ssd,space_cache=v2,subvolid=257,subvol=/@home
+
+## launching Firefox in hsway
+pid=2201883 log=/run/user/1000/hsway/s0/logs/env.log
+## no temporary add-on; waiting 25 s for the policy to try the force install
+{
+ "value": {
+  "addon": null,
+  "msgs": [
+   "1792152222867\taddons.xpi-utils\tWARN\tAdd-on s0@mauvely.invalid is not correctly signed.",
+   "1792152222867\taddons.xpi-utils\tWARN\tAdd-on s0@mauvely.invalid is not correctly signed.",
+   "1792152222867\taddons.xpi\tWARN\tInvalid XPI: signature is required but missing"
+  ]
+ }
+}
+
+## policy state (chrome context)
+{
+ "value": {
+  "status": 1,
+  "active": {
+   "Homepage": {
+    "URL": "https://s0.mauvely.invalid/",
+    "Locked": true,
+    "StartPage": "homepage"
+   },
+   "DisableTelemetry": true,
+   "DisableAppUpdate": true,
+   "ExtensionSettings": {
+    "s0@mauvely.invalid": {
+     "installation_mode": "force_installed",
+     "install_url": "file:///home/timuri/.cache/mauvely-s0/home/s0ext/s0.xpi"
+    }
+   },
+   "SitePolicies": []
+  },
+  "homepagePref": "https://s0.mauvely.invalid/",
+  "homepageLocked": true,
+  "telemetryPref": false
+ }
+}
+org.mozilla.firefox pid=2201895 * 0,0 1280x800  Enterprise Policies — Mozilla Firefox
+/home/timuri/Documents/Mauvely/OS/agent/spikes/s0/evidence/firefox-noaddon-policy-v2.png
+
+## collector log

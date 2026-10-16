@@ -1,0 +1,4 @@
+total 2572
+-rwxr-xr-x 1 timuri timuri 1306576 Oct 16 13:02 s0client
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:02 s0host
+/home/timuri/.cache/mauvely-s0/bin/s0host: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, for GNU/Linux 6.1.0, BuildID[sha1]=79c0e2c174ad53812dd9515e69dd00cddd67f079, stripped

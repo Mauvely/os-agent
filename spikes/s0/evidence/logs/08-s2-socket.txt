@@ -1,0 +1,155 @@
+drwx------ 2 timuri timuri 60 Oct 16 13:02 /run/user/1000/mauvely-s0
+srw------- 1 timuri timuri 0 Oct 16 13:02 /run/user/1000/mauvely-s0/broker
+
+### /home/timuri/.cache/mauvely-s0/bin/s0client /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "host", "pid": 2194797, "uid": 1000, "app": null, "app_path": null, "installation": null, "origin": null, "mauvely_system_app": null, "branch": null, "instance_id": null, "flatpak_info_error": "ENOENT"}}
+[exit 0]
+
+### s0flatpak run com.mauvely.s0granted /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194813, "uid": 1000, "app": "com.mauvely.s0granted", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0granted/x86_64/stable/82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1/files", "installation": "not-system", "origin": "mauvely-s0", "mauvely_system_app": false, "branch": "stable", "instance_id": "2462956335", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run com.mauvely.s0denied /run/user/1000/mauvely-s0/broker
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+[exit 2]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+[exit 2]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0 --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194859, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "3254090996", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194871, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "1962729033", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0:create --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194885, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "1920282663", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.chromium.Chromium /run/user/1000/mauvely-s0/broker
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+[exit 2]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0 --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.chromium.Chromium /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194911, "uid": 1000, "app": "org.chromium.Chromium", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "2407901536", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.chromium.Chromium /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194923, "uid": 1000, "app": "org.chromium.Chromium", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "3729840241", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --filesystem=xdg-run/mauvely-s0:create --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.chromium.Chromium /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194936, "uid": 1000, "app": "org.chromium.Chromium", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "2516844897", "flatpak_info_error": null}}
+[exit 0]
+
+### persistent override (flatpak override --user --filesystem=xdg-run/mauvely-s0 org.mozilla.firefox)
+[Context]
+filesystems=xdg-run/mauvely-s0;
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2194954, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "2077301985", "flatpak_info_error": null}}
+[exit 0]
+
+### s0flatpak run --no-a11y-bus --no-documents-portal --filesystem=/home/timuri/.cache/mauvely-s0/bin:ro --command=/home/timuri/.cache/mauvely-s0/bin/s0client org.mozilla.firefox /run/user/1000/mauvely-s0/broker
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+[exit 2]
+
+### com.mauvely.s0denied with --filesystem=host
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+ERR connect /run/host/run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+
+### com.mauvely.s0denied with --filesystem=host-os
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+ERR connect /run/host/run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+
+### com.mauvely.s0denied with --filesystem=home
+ERR connect /run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+ERR connect /run/host/run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+
+### com.mauvely.s0denied with --filesystem=/run/user/1000/mauvely-s0
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195050, "uid": 1000, "app": "com.mauvely.s0denied", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0denied/x86_64/stable/10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f/files", "installation": "not-system", "origin": "mauvely-s0", "mauvely_system_app": false, "branch": "stable", "instance_id": "4263294544", "flatpak_info_error": null}}
+ERR connect /run/host/run/user/1000/mauvely-s0/broker: No such file or directory (os error 2)
+
+### server log (one JSON object per accepted connection), flatpak_info_raw trimmed to the first caller
+{
+ "pid": 2194797,
+ "uid": 1000,
+ "gid": 1000,
+ "peerpidfd_pid": 2194797,
+ "peerpidfd_pid_after": 2194797,
+ "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client",
+ "comm": "s0client",
+ "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-com.anthropic.Claude-7325.scope",
+ "kind": "host",
+ "flatpak_info_error": "ENOENT",
+ "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}",
+ "time": "13:02:28"
+}
+{
+ "pid": 2194813,
+ "uid": 1000,
+ "gid": 1000,
+ "peerpidfd_pid": 2194813,
+ "peerpidfd_pid_after": 2194813,
+ "exe": "/app/bin/s0client",
+ "comm": "s0client",
+ "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.mauvely.s0granted-2462956335.scope",
+ "kind": "flatpak",
+ "app": "com.mauvely.s0granted",
+ "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08",
+ "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0granted/x86_64/stable/82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1/files",
+ "app_commit": "82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1",
+ "branch": "stable",
+ "arch": "x86_64",
+ "instance_id": "2462956335",
+ "installation": "not-system",
+ "origin": "mauvely-s0",
+ "app_extensions": null,
+ "mauvely_system_app": false,
+ "filesystems": "xdg-run/mauvely-s0;",
+ "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}",
+ "time": "13:02:28"
+}
+---- raw /.flatpak-info of caller #2 ----
+[Application]
+name=com.mauvely.s0granted
+runtime=runtime/org.freedesktop.Platform/x86_64/25.08
+
+[Instance]
+instance-id=2462956335
+instance-path=/home/timuri/.cache/mauvely-s0/home/.var/app/com.mauvely.s0granted
+app-path=/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0granted/x86_64/stable/82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1/files
+app-commit=82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1
+runtime-path=/home/timuri/.cache/mauvely-flatpak/user/runtime/org.freedesktop.Platform/x86_64/25.08/b7aba340fd291e08bf26442d43a0e4adb6733da5a06d47ff4296a964af40cc8a/files
+runtime-commit=b7aba340fd291e08bf26442d43a0e4adb6733da5a06d47ff4296a964af40cc8a
+runtime-extensions=org.freedesktop.Platform.GL.default=fe659a591fe882f573584ae62cfb55b92065e4ff7a972833271438bddfa6669e;org.freedesktop.Platform.GL.nvidia-580-178-04=5e2709e2661aa151aedbf20155d0ecc7b494d1148653407b5702108d7d5ce1a9;org.freedesktop.Platform.Locale=0be35e4be814c644c1c32e2a00c551f34d1545c19c1d10d18041e559f5125525;org.gtk.Gtk3theme.Breeze=77495563abf1b523c653bf0b211c39fda1596cde833768baee4894f91b285c8c;org.freedesktop.Platform.VAAPI.nvidia=82882ebc79c33156854f0d0ca78657a0c4b68fc9390a70ed84521151047df313;org.freedesktop.Platform.codecs-extra=8d29ce3ba01ddf61630e7e279ef2a1085c544011d9fb3f45b803aa5e9cc75363;org.freedesktop.Platform.GL.default=50cad616e326182932ff27a5ae2e4dff49720be753546fbdd6b6bc08db4d43e0
+branch=stable
+arch=x86_64
+flatpak-version=1.18.4
+session-bus-proxy=true
+system-bus-proxy=true
+extra-args=--usb-list=;--usb-list=;
+
+[Context]
+filesystems=xdg-run/mauvely-s0;
+
+[Environment]
+ALSA_CONFIG_PATH=/usr/share/alsa/alsa-flatpak.conf
+GI_TYPELIB_PATH=/app/lib/girepository-1.0
+GST_PLUGIN_SYSTEM_PATH=/app/lib/gstreamer-1.0:/usr/lib/extensions/gstreamer-1.0:/usr/lib/x86_64-linux-gnu/codecs-extra/lib/gstreamer-1.0:/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+XDG_DATA_DIRS=/app/share:/usr/share:/usr/share/runtime/share:/run/host/user-share:/run/host/share
+ALSA_CONFIG_DIR=/usr/share/alsa
+__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS=/etc/egl/egl_external_platform.d:/usr/lib/x86_64-linux-gnu/GL/egl/egl_external_platform.d:/usr/share/egl/egl_external_platform.d
+PYTHONUSERBASE=/var/data/python
+
+{"pid": 2194859, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194859, "peerpidfd_pid_after": 2194859, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-3254090996.scope", "kind": "flatpak", "app": "org.mozilla.firefox", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "app_commit": "9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1", "branch": "stable", "arch": "x86_64", "instance_id": "3254090996", "installation": "not-system", "origin": "flathub", "app_extensions": "org.mozilla.firefox.Locale=54d5e01e8707a2a9d45c76cc10e8e8b5dc6c865e8da29605790b74dca20dbef6", "mauvely_system_app": false, "filesystems": "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;/run/udev:ro;xdg-run/speech-dispatcher:ro;xdg-run/mauvely-s0;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194871, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194871, "peerpidfd_pid_after": 2194871, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-1962729033.scope", "kind": "flatpak", "app": "org.mozilla.firefox", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "app_commit": "9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1", "branch": "stable", "arch": "x86_64", "instance_id": "1962729033", "installation": "not-system", "origin": "flathub", "app_extensions": "org.mozilla.firefox.Locale=54d5e01e8707a2a9d45c76cc10e8e8b5dc6c865e8da29605790b74dca20dbef6", "mauvely_system_app": false, "filesystems": "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;/run/udev:ro;xdg-run/speech-dispatcher:ro;xdg-run/mauvely-s0:ro;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194885, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194885, "peerpidfd_pid_after": 2194885, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-1920282663.scope", "kind": "flatpak", "app": "org.mozilla.firefox", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "app_commit": "9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1", "branch": "stable", "arch": "x86_64", "instance_id": "1920282663", "installation": "not-system", "origin": "flathub", "app_extensions": "org.mozilla.firefox.Locale=54d5e01e8707a2a9d45c76cc10e8e8b5dc6c865e8da29605790b74dca20dbef6", "mauvely_system_app": false, "filesystems": "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;/run/udev:ro;xdg-run/speech-dispatcher:ro;xdg-run/mauvely-s0:create;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194911, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194911, "peerpidfd_pid_after": 2194911, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.chromium.Chromium-2407901536.scope", "kind": "flatpak", "app": "org.chromium.Chromium", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "app_commit": "1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771", "branch": "stable", "arch": "x86_64", "instance_id": "2407901536", "installation": "not-system", "origin": "flathub", "app_extensions": "org.chromium.Chromium.Codecs=c29cd3073026425ba29a4823c4c02ac8ba9d4955e628a1a1df942b5906df202b;org.chromium.Chromium.Locale=1111328254edb85f106cbe7bdb2d79bd9465c0cefc8c9b0d6301a329cf1386fc", "mauvely_system_app": false, "filesystems": "home;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;xdg-run/mauvely-s0;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194923, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194923, "peerpidfd_pid_after": 2194923, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.chromium.Chromium-3729840241.scope", "kind": "flatpak", "app": "org.chromium.Chromium", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "app_commit": "1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771", "branch": "stable", "arch": "x86_64", "instance_id": "3729840241", "installation": "not-system", "origin": "flathub", "app_extensions": "org.chromium.Chromium.Codecs=c29cd3073026425ba29a4823c4c02ac8ba9d4955e628a1a1df942b5906df202b;org.chromium.Chromium.Locale=1111328254edb85f106cbe7bdb2d79bd9465c0cefc8c9b0d6301a329cf1386fc", "mauvely_system_app": false, "filesystems": "home;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;xdg-run/mauvely-s0:ro;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194936, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194936, "peerpidfd_pid_after": 2194936, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.chromium.Chromium-2516844897.scope", "kind": "flatpak", "app": "org.chromium.Chromium", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "app_commit": "1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771", "branch": "stable", "arch": "x86_64", "instance_id": "2516844897", "installation": "not-system", "origin": "flathub", "app_extensions": "org.chromium.Chromium.Codecs=c29cd3073026425ba29a4823c4c02ac8ba9d4955e628a1a1df942b5906df202b;org.chromium.Chromium.Locale=1111328254edb85f106cbe7bdb2d79bd9465c0cefc8c9b0d6301a329cf1386fc", "mauvely_system_app": false, "filesystems": "home;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;xdg-run/mauvely-s0:create;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2194954, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2194954, "peerpidfd_pid_after": 2194954, "exe": "/home/timuri/.cache/mauvely-s0/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.mozilla.firefox-2077301985.scope", "kind": "flatpak", "app": "org.mozilla.firefox", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "app_commit": "9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1", "branch": "stable", "arch": "x86_64", "instance_id": "2077301985", "installation": "not-system", "origin": "flathub", "app_extensions": "org.mozilla.firefox.Locale=54d5e01e8707a2a9d45c76cc10e8e8b5dc6c865e8da29605790b74dca20dbef6", "mauvely_system_app": false, "filesystems": "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/home/timuri/.cache/mauvely-s0/bin:ro;/run/udev:ro;xdg-run/speech-dispatcher:ro;xdg-run/mauvely-s0;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:29"}
+{"pid": 2195050, "uid": 1000, "gid": 1000, "peerpidfd_pid": 2195050, "peerpidfd_pid_after": 2195050, "exe": "/app/bin/s0client", "comm": "s0client", "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.mauvely.s0denied-4263294544.scope", "kind": "flatpak", "app": "com.mauvely.s0denied", "runtime": "runtime/org.freedesktop.Platform/x86_64/25.08", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0denied/x86_64/stable/10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f/files", "app_commit": "10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f", "branch": "stable", "arch": "x86_64", "instance_id": "4263294544", "installation": "not-system", "origin": "mauvely-s0", "app_extensions": null, "mauvely_system_app": false, "filesystems": "/run/user/1000/mauvely-s0;", "request": "{\"v\":1,\"op\":\"token\",\"client\":\"s0\"}", "time": "13:02:30"}

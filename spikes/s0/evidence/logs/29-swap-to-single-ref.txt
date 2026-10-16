@@ -1,0 +1,21 @@
+Info: applications using the extension org.chromium.Chromium.NativeMessagingHost.s0 branch 1:
+   org.chromium.Chromium
+Info: applications using the extension org.chromium.Chromium.Extension.s0force branch 1:
+   org.chromium.Chromium
+
+
+ 1.	   	org.chromium.Chromium.Extension.s0force	1	r
+ 2.	   	org.chromium.Chromium.NativeMessagingHost.s0	1	r
+
+
+Uninstalling 1/2…
+Uninstalling 2/2…
+Uninstall complete.
+Looking for matches…
+
+
+ 1.	   	org.chromium.Chromium.Extension.s0all	1	i	mauvely-s0	< 637.5 kB
+
+
+Installing…
+Installation complete.

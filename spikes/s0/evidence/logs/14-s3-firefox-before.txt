@@ -1,0 +1,261 @@
+## host side: /home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:02 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:02 s0host
+{
+  "name": "com.mauvely.s0",
+  "description": "Mauvely S0 spike host",
+  "path": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+  "type": "stdio",
+  "allowed_extensions": ["s0@mauvely.invalid"]
+}
+
+## what the sandbox sees of that directory (no portal, no override beyond the test extension dir):
+HOME=/home/timuri/.cache/mauvely-s0/home
+/home/timuri/.cache/mauvely-s0/home/.mozilla/native-messaging-hosts/:
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:02 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:02 s0host
+
+/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/:
+total 1300
+-rw-r--r-- 1 timuri timuri     257 Oct 16 13:02 com.mauvely.s0.json
+-rwxr-xr-x 1 timuri timuri 1326064 Oct 16 13:02 s0host
+8
+rw,nosuid,nodev,noatime,compress=zstd:1,ssd,space_cache=v2,subvolid=257,subvol=/@home
+
+## launching Firefox in hsway
+pid=2197450 log=/run/user/1000/hsway/s0/logs/env.log
+## installing the temporary (unsigned) add-on over Marionette
+{"value": "s0@mauvely.invalid"}
+
+## policy state (chrome context)
+{
+ "value": {
+  "status": 0,
+  "active": null,
+  "homepagePref": "about:home",
+  "homepageLocked": false,
+  "telemetryPref": false
+ }
+}
+org.mozilla.firefox pid=2197461 * 0,0 1280x800  Enterprise Policies — Mozilla Firefox
+/home/timuri/Documents/Mauvely/OS/agent/spikes/s0/evidence/firefox-policy-before.png
+
+## collector log
+[firefox] loaded: {
+ "id": "s0@mauvely.invalid",
+ "ua": "Mozilla/5.0 (X11; Linux x86_64; rv:158.0) Gecko/20100101 Firefox/158.0",
+ "manifest": 3
+}
+[firefox] sendNativeMessage: {
+ "response": {
+  "echo": {
+   "hello": "one-shot",
+   "from": "firefox"
+  },
+  "host": {
+   "pid": 256,
+   "ppid": "2",
+   "parent_comm": "firefox-bin",
+   "argv": [
+    "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+    "/home/timuri/.cache/mauvely-s0/home/.mozilla/native-messaging-hosts/com.mauvely.s0.json",
+    "s0@mauvely.invalid"
+   ],
+   "home": "/home/timuri/.cache/mauvely-s0/home",
+   "xdg_runtime_dir": "/run/user/1000",
+   "exe": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+   "cwd": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts",
+   "has_flatpak_info": true,
+   "flatpak_app": "org.mozilla.firefox",
+   "flatpak_runtime": "runtime/org.freedesktop.Platform/x86_64/25.08",
+   "flatpak_app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files",
+   "brokers": [
+    {
+     "path": "/run/user/1000/mauvely/broker",
+     "error": "No such file or directory (os error 2)"
+    },
+    {
+     "path": "/run/user/1000/mauvely-s0/broker",
+     "error": "No such file or directory (os error 2)"
+    }
+   ]
+  }
+ },
+ "error": null
+}
+[firefox] sendNativeMessage-refhost: {
+ "response": null,
+ "error": "No such native application com.mauvely.s0ext"
+}
+[firefox] sendNativeMessage-singleref: {
+ "response": null,
+ "error": "No such native application com.mauvely.s0all"
+}
+[firefox] connectNative: {
+ "got": [
+  {
+   "echo": {
+    "hello": "port",
+    "n": 1
+   },
+   "host": {
+    "pid": 258,
+    "ppid": "2",
+    "parent_comm": "firefox-bin",
+    "argv": [
+     "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+     "/home/timuri/.cache/mauvely-s0/home/.mozilla/native-messaging-hosts/com.mauvely.s0.json",
+     "s0@mauvely.invalid"
+    ],
+    "home": "/home/timuri/.cache/mauvely-s0/home",
+    "xdg_runtime_dir": "/run/user/1000",
+    "exe": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+    "cwd": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts",
+    "has_flatpak_info": true,
+    "flatpak_app": "org.mozilla.firefox",
+    "flatpak_runtime": "runtime/org.freedesktop.Platform/x86_64/25.08",
+    "flatpak_app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files",
+    "brokers": [
+     {
+      "path": "/run/user/1000/mauvely/broker",
+      "error": "No such file or directory (os error 2)"
+     },
+     {
+      "path": "/run/user/1000/mauvely-s0/broker",
+      "error": "No such file or directory (os error 2)"
+     }
+    ]
+   }
+  },
+  {
+   "echo": {
+    "hello": "port",
+    "n": 2
+   },
+   "host": {
+    "pid": 258,
+    "ppid": "2",
+    "parent_comm": "firefox-bin",
+    "argv": [
+     "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+     "/home/timuri/.cache/mauvely-s0/home/.mozilla/native-messaging-hosts/com.mauvely.s0.json",
+     "s0@mauvely.invalid"
+    ],
+    "home": "/home/timuri/.cache/mauvely-s0/home",
+    "xdg_runtime_dir": "/run/user/1000",
+    "exe": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/s0host",
+    "cwd": "/home/timuri/.cache/mauvely-s0/home/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts",
+    "has_flatpak_info": true,
+    "flatpak_app": "org.mozilla.firefox",
+    "flatpak_runtime": "runtime/org.freedesktop.Platform/x86_64/25.08",
+    "flatpak_app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files",
+    "brokers": [
+     {
+      "path": "/run/user/1000/mauvely/broker",
+      "error": "No such file or directory (os error 2)"
+     },
+     {
+      "path": "/run/user/1000/mauvely-s0/broker",
+      "error": "No such file or directory (os error 2)"
+     }
+    ]
+   }
+  }
+ ],
+ "error": null
+}
+[firefox] permissions: {
+ "origins": [
+  "https://*.mauvely.invalid/*",
+  "https://*.mauvely.invalid/*"
+ ],
+ "data_collection": [],
+ "permissions": [
+  "nativeMessaging",
+  "cookies"
+ ]
+}
+[firefox] cookies: {
+ "setHostOnly": {
+  "r": {
+   "name": "mauvely_session",
+   "value": "token",
+   "domain": ".mauvely.invalid",
+   "hostOnly": false,
+   "path": "/",
+   "secure": true,
+   "httpOnly": true,
+   "sameSite": "lax",
+   "session": false,
+   "firstPartyDomain": "",
+   "partitionKey": null,
+   "expirationDate": 1792155763,
+   "storeId": "firefox-default"
+  },
+  "e": null
+ },
+ "removeHostOnly": {
+  "r": {
+   "url": "https://accounts.mauvely.invalid/",
+   "name": "mauvely_session",
+   "storeId": "firefox-default",
+   "firstPartyDomain": "",
+   "partitionKey": null
+  },
+  "e": null
+ },
+ "setDomain": {
+  "r": {
+   "name": "mauvely_session",
+   "value": "shadow",
+   "domain": "accounts.mauvely.invalid",
+   "hostOnly": true,
+   "path": "/",
+   "secure": false,
+   "httpOnly": false,
+   "sameSite": "unspecified",
+   "session": true,
+   "firstPartyDomain": "",
+   "partitionKey": null,
+   "storeId": "firefox-default"
+  },
+  "e": null
+ },
+ "get": {
+  "r": [
+   {
+    "name": "mauvely_session",
+    "value": "shadow",
+    "domain": "accounts.mauvely.invalid",
+    "hostOnly": true,
+    "path": "/",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": true,
+    "firstPartyDomain": "",
+    "partitionKey": null,
+    "storeId": "firefox-default"
+   },
+   {
+    "name": "mauvely_session",
+    "value": "token",
+    "domain": ".mauvely.invalid",
+    "hostOnly": false,
+    "path": "/",
+    "secure": true,
+    "httpOnly": true,
+    "sameSite": "lax",
+    "session": false,
+    "firstPartyDomain": "",
+    "partitionKey": null,
+    "expirationDate": 1792155773,
+    "storeId": "firefox-default"
+   }
+  ],
+  "e": null
+ }
+}
+[firefox] done: {}

@@ -1,0 +1,25 @@
+flathub	Flathub	https://dl.flathub.org/repo/	-	-	-	1		Central repository of Flatpak applications	Central repository of Flatpak applications	https://flathub.org/	https://dl.flathub.org/repo/logo.svg
+mauvely-s0	-	file:///home/timuri/.cache/mauvely-s0/repo	-	-	-	1		-	-	-	-
+mauvely-test	-	file:///home/timuri/.cache/mauvely-flatpak/remote-test/repo	-	-	-	1		-	-	-	-
+Looking for matches…
+Skipping: org.mozilla.firefox/x86_64/stable is already installed
+Skipping: org.chromium.Chromium/x86_64/stable is already installed
+Mauvely Assist	com.mauvely.assist	0.1.0	master	assist-origin
+Mauvely Compose	com.mauvely.compose	0.5.4	master	compose-origin
+Mauvely Compose	com.mauvely.compose	0.5.3	stable	mauvely-test
+Mauvely Play	com.mauvely.play	0.1.0	master	play-origin
+s0denied	com.mauvely.s0denied		stable	mauvely-s0
+Sotto	com.mauvely.sotto	0.1.0	stable	mauvely-test
+qtwebengine application base	io.qt.qtwebengine.BaseApp		6.11	flathub
+Chromium Web Browser	org.chromium.Chromium	155.0.8059.39	stable	flathub
+Codecs	org.chromium.Chromium.Codecs		stable	flathub
+Freedesktop Platform	org.freedesktop.Platform	freedesktop-sdk-25.08.18	25.08	flathub
+Mesa	org.freedesktop.Platform.GL.default	26.2.4	25.08	flathub
+Mesa (Extra)	org.freedesktop.Platform.GL.default	26.2.4	25.08-extra	flathub
+nvidia-580-178-04	org.freedesktop.Platform.GL.nvidia-580-178-04		1.4	flathub
+Nvidia VAAPI driver	org.freedesktop.Platform.VAAPI.nvidia		25.08	flathub
+Codecs Extra Extension	org.freedesktop.Platform.codecs-extra		25.08-extra	flathub
+Breeze GTK theme	org.gtk.Gtk3theme.Breeze	6.7.2	3.22	flathub
+KDE Application Platform	org.kde.Platform		6.11	flathub
+KDE Software Development Kit	org.kde.Sdk		6.11	flathub
+Firefox	org.mozilla.firefox	158.0	stable	flathub

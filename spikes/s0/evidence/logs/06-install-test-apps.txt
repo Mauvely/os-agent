@@ -1,0 +1,15 @@
+Looking for matches…
+
+com.mauvely.s0granted permissions:
+    file access [1]
+
+    [1] xdg-run/mauvely-s0
+
+
+ 1.	   	com.mauvely.s0denied	stable	i	mauvely-s0	< 624.6 kB
+ 2.	   	com.mauvely.s0granted	stable	i	mauvely-s0	< 624.7 kB
+
+
+Installing 1/2…
+Installing 2/2…
+Installation complete.

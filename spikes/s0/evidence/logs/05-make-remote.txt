@@ -1,0 +1,47 @@
+Commit: 82c4ea1fd5e7cf06264e2edd34f97876ca7b0af83055d08ac7c94656abf1f2f1
+Metadata Total: 9
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Commit: 10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f
+Metadata Total: 9
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Commit: 8d1919778794851617a214fd65674e076b50c2151a9524ec0a0d6de39d979fae
+Metadata Total: 7
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Commit: 2b26532ba87ca0b8b4587abbce79d97286e15e417bcaf0cdd91d431ab62e453a
+Metadata Total: 9
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Commit: 7b5e7516b7559be345f5d541604c35a3155a6193da9fd00dcd192575c22d2fc2
+Metadata Total: 9
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Updating appstream branch
+No appstream data for app/com.mauvely.s0denied/x86_64/stable: No such file or directory: /files/share
+No appstream data for app/com.mauvely.s0granted/x86_64/stable: No such file or directory: /files/share
+Updating summary
+app/com.mauvely.s0denied/x86_64/stable
+app/com.mauvely.s0granted/x86_64/stable
+appstream/x86_64
+appstream2/x86_64
+runtime/org.chromium.Chromium.Extension.s0/x86_64/1
+runtime/org.chromium.Chromium.Extension.s0all/x86_64/1
+runtime/org.chromium.Chromium.Extension.s0force/x86_64/1
+runtime/org.chromium.Chromium.NativeMessagingHost.s0/x86_64/1
+runtime/org.chromium.Chromium.Policy.s0/x86_64/1
+runtime/org.mozilla.firefox.systemconfig/x86_64/stable
+flathub	Flathub	https://dl.flathub.org/repo/	-	-	-	1		Central repository of Flatpak applications	Central repository of Flatpak applications	https://flathub.org/	https://dl.flathub.org/repo/logo.svg
+mauvely-s0	-	file:///home/timuri/.cache/mauvely-s0/repo	-	-	-	1		-	-	-	-
+mauvely-test	-	file:///home/timuri/.cache/mauvely-flatpak/remote-test/repo	-	-	-	1		-	-	-	-

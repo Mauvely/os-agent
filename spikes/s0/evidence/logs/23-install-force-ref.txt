@@ -1,0 +1,8 @@
+Looking for matches…
+
+
+ 1.	   	org.chromium.Chromium.Extension.s0force	1	i	mauvely-s0	< 252 bytes
+
+
+Installing…
+Installation complete.

@@ -1,0 +1,4 @@
+total 8
+-rw------- 1 timuri timuri 2543 Oct 16 13:02 s0.crx
+-rw-r--r-- 1 timuri timuri  257 Oct 16 13:02 update.xml
+Cr24

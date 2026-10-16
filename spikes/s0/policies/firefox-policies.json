@@ -1,0 +1,7 @@
+{
+  "policies": {
+    "Homepage": { "URL": "https://s0.mauvely.invalid/", "Locked": true, "StartPage": "homepage" },
+    "DisableTelemetry": true,
+    "DisableAppUpdate": true
+  }
+}

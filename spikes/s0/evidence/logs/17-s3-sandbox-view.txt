@@ -1,0 +1,39 @@
+################ org.mozilla.firefox
+/app/etc/firefox:
+total 0
+drwxr-xr-x 1 timuri timuri 26 Jan  1  1970 policies
+
+/app/etc/firefox/policies:
+total 4
+-rw-r--r-- 2 timuri timuri 182 Jan  1  1970 policies.json
+app-extensions:
+org.mozilla.firefox.Locale=54d5e01e8707a2a9d45c76cc10e8e8b5dc6c865e8da29605790b74dca20dbef6
+org.mozilla.firefox.systemconfig=8d1919778794851617a214fd65674e076b50c2151a9524ec0a0d6de39d979fae
+
+################ org.chromium.Chromium
+-- /app/chromium/extensions/policies/managed
+total 0
+lrwxrwxrwx 1 timuri timuri 66 Oct 16 13:03 s0-extension-ref.json -> /app/chromium/extensions/s0/policies/managed/s0-extension-ref.json
+-- /app/chromium/policies/policies/managed
+total 0
+lrwxrwxrwx 1 timuri timuri 61 Oct 16 13:03 s0-policy-ref.json -> /app/chromium/policies/s0/policies/managed/s0-policy-ref.json
+-- /app/chromium/extensions
+total 0
+drwx------ 3 timuri timuri 60 Oct 16 13:03 policies
+drwxr-xr-x 1 timuri timuri 24 Oct 16 13:03 s0
+-- /app/chromium/policies
+total 0
+drwx------ 3 timuri timuri 60 Oct 16 13:03 policies
+drwxr-xr-x 1 timuri timuri 24 Oct 16 13:03 s0
+app-extensions:
+org.chromium.Chromium.Codecs=c29cd3073026425ba29a4823c4c02ac8ba9d4955e628a1a1df942b5906df202b
+org.chromium.Chromium.Extension.s0=2b26532ba87ca0b8b4587abbce79d97286e15e417bcaf0cdd91d431ab62e453a
+org.chromium.Chromium.Policy.s0=7b5e7516b7559be345f5d541604c35a3155a6193da9fd00dcd192575c22d2fc2
+org.chromium.Chromium.Locale=1111328254edb85f106cbe7bdb2d79bd9465c0cefc8c9b0d6301a329cf1386fc
+
+## installed from the throwaway remote:
+com.mauvely.s0denied/x86_64/stable	mauvely-s0	user
+com.mauvely.s0granted/x86_64/stable	mauvely-s0	user
+org.chromium.Chromium.Extension.s0/x86_64/1	mauvely-s0	user
+org.chromium.Chromium.Policy.s0/x86_64/1	mauvely-s0	user
+org.mozilla.firefox.systemconfig/x86_64/stable	mauvely-s0	user

@@ -1,0 +1,80 @@
+################ org.mozilla.firefox  ( Version: 158.0  Origin: flathub  Commit: 9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1 )
+[Application]
+name=org.mozilla.firefox
+runtime=org.freedesktop.Platform/x86_64/25.08
+sdk=org.freedesktop.Sdk/x86_64/25.08
+base=app/org.mozilla.firefox.BaseApp/x86_64/25.08
+command=firefox
+required-flatpak=0.11.1
+
+[Extension org.mozilla.firefox.Locale]
+directory=share/runtime/langpack
+autodelete=true
+locale-subset=true
+
+[Extension org.mozilla.firefox.systemconfig]
+directory=etc/firefox
+no-autodownload=true
+
+[Context]
+shared=network;ipc;
+sockets=x11;wayland;pulseaudio;fallback-x11;pcsc;cups;
+devices=all;
+features=devel;
+filesystems=xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/run/udev:ro;xdg-run/speech-dispatcher:ro;
+persistent=.mozilla;
+
+################ org.chromium.Chromium  ( Version: 155.0.8059.39  Origin: flathub  Commit: 1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771 )
+[Application]
+name=org.chromium.Chromium
+runtime=org.freedesktop.Platform/x86_64/25.08
+sdk=org.freedesktop.Sdk/x86_64/25.08
+base=app/org.chromium.Chromium.BaseApp/x86_64/25.08
+command=chromium
+required-flatpak=1.8.2
+
+[Context]
+shared=ipc;network;
+sockets=cups;pulseaudio;wayland;x11;
+devices=all;
+filesystems=home;/run/.heim_org.h5l.kcm-socket;
+
+[Extension org.chromium.Chromium.Codecs]
+directory=chromium/nonfree-codecs
+autodelete=true
+add-ld-path=lib
+
+[Extension org.chromium.Chromium.Extension]
+directory=chromium/extensions
+autodelete=true
+no-autodownload=true
+subdirectories=true
+merge-dirs=extensions;native-messaging-hosts;policies/managed;policies/recommended
+version=1
+
+[Extension org.chromium.Chromium.NativeMessagingHost]
+directory=chromium/native-messaging-hosts
+autodelete=true
+no-autodownload=true
+subdirectories=true
+merge-dirs=native-messaging-hosts
+version=1
+
+[Extension org.chromium.Chromium.Policy]
+directory=chromium/policies
+autodelete=true
+no-autodownload=true
+subdirectories=true
+merge-dirs=policies/managed;policies/recommended
+version=1
+
+[Extension org.chromium.Chromium.Locale]
+directory=share/runtime/locale
+autodelete=true
+locale-subset=true
+
+[Extension org.chromium.Chromium.Debug]
+directory=lib/debug
+autodelete=true
+no-autodownload=true
+

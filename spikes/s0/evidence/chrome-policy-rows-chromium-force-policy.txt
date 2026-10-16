@@ -1,0 +1,5 @@
+BookmarkBarEnabled | true | Platform | Machine | Mandatory | OK 
+ExtensionInstallForcelist | ["acpdompimmaaandoojlmeigfeoljdcpj;http://127.0.0.1:18100/update.xml"] | Platform | Machine | Mandatory | OK 
+HomepageLocation | https://s0-extension-ref.mauvely.invalid/ | Platform | Machine | Mandatory | OK 
+PasswordManagerEnabled | false | Platform | Machine | Mandatory | OK 
+ShowHomeButton | true | Platform | Machine | Mandatory | OK 

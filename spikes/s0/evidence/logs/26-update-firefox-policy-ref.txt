@@ -1,0 +1,9 @@
+Looking for updates…
+
+
+ 1.	   	org.mozilla.firefox.systemconfig	stable	u	mauvely-s0	< 634.7 kB
+
+
+Updating…
+Updates complete.
+ba026ca44ab1cb18f69f116ce1eb34974cfefa4332e1b486393e02343856e1a2

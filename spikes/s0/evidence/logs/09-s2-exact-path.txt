@@ -1,0 +1,21 @@
+drwx------ 2 timuri timuri 60 Oct 16 13:02 /run/user/1000/mauvely
+### com.mauvely.s0denied, no grant
+ERR connect /run/user/1000/mauvely/broker: No such file or directory (os error 2)
+### com.mauvely.s0denied, xdg-run/mauvely
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195119, "uid": 1000, "app": "com.mauvely.s0denied", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0denied/x86_64/stable/10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f/files", "installation": "not-system", "origin": "mauvely-s0", "mauvely_system_app": false, "branch": "stable", "instance_id": "3871677709", "flatpak_info_error": null}}
+### com.mauvely.s0denied, xdg-run/mauvely:ro
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195131, "uid": 1000, "app": "com.mauvely.s0denied", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/com.mauvely.s0denied/x86_64/stable/10d587aa9357fdc14650ca066169349dee43c99ba78c09b1f22d05ee2aa9a28f/files", "installation": "not-system", "origin": "mauvely-s0", "mauvely_system_app": false, "branch": "stable", "instance_id": "596938891", "flatpak_info_error": null}}
+### org.mozilla.firefox, no grant
+ERR connect /run/user/1000/mauvely/broker: No such file or directory (os error 2)
+### org.mozilla.firefox, xdg-run/mauvely
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195162, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "3200080095", "flatpak_info_error": null}}
+### org.mozilla.firefox, xdg-run/mauvely:ro
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195174, "uid": 1000, "app": "org.mozilla.firefox", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.mozilla.firefox/x86_64/stable/9c1e95bd09dbd35ed7e9e861258c7376594bb3318b9d1fa85902ccf68d0b6ff1/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "1821112232", "flatpak_info_error": null}}
+### org.chromium.Chromium, no grant
+ERR connect /run/user/1000/mauvely/broker: No such file or directory (os error 2)
+### org.chromium.Chromium, xdg-run/mauvely
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195231, "uid": 1000, "app": "org.chromium.Chromium", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "1904495616", "flatpak_info_error": null}}
+### org.chromium.Chromium, xdg-run/mauvely:ro
+{"v": 1, "ok": true, "you": {"kind": "flatpak", "pid": 2195243, "uid": 1000, "app": "org.chromium.Chromium", "app_path": "/home/timuri/.cache/mauvely-flatpak/user/app/org.chromium.Chromium/x86_64/stable/1d1959f8f9f8e150e322c6be849b8c405ed77bd5c92ff58f2db26be862847771/files", "installation": "not-system", "origin": "flathub", "mauvely_system_app": false, "branch": "stable", "instance_id": "2432871247", "flatpak_info_error": null}}
+### host
+{"v": 1, "ok": true, "you": {"kind": "host", "pid": 2195245, "uid": 1000, "app": null, "app_path": null, "installation": null, "origin": null, "mauvely_system_app": null, "branch": null, "instance_id": null, "flatpak_info_error": "ENOENT"}}
