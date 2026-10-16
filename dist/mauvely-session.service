@@ -1,0 +1,17 @@
+[Unit]
+Description=Mauvely session helper
+Documentation=https://github.com/Mauvely/os-agent
+# In each graphical session, as the person logged in.
+PartOf=graphical-session.target
+After=graphical-session.target
+# Unprovisioned machines (no installer run) have no agent to stage anything.
+ConditionPathExists=/etc/mauvely/server
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/mauvely-session
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=graphical-session.target

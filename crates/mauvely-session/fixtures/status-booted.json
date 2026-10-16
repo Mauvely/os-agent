@@ -1,0 +1,85 @@
+{
+  "deployments" : [
+    {
+      "requested-local-packages" : {
+      },
+      "base-commit-meta" : {
+        "ostree.bootable" : true,
+        "ostree.composefs.digest.v0" : "c0ffee0000000000000000000000000000000000000000000000000000000001",
+        "ostree.linux" : "6.17.1-300.fc44.x86_64",
+        "version" : "44.20261013.0"
+      },
+      "base-removals" : [
+      ],
+      "unlocked" : "none",
+      "booted" : true,
+      "requested-local-fileoverride-packages" : {
+      },
+      "id" : "default-9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d.0",
+      "osname" : "default",
+      "pinned" : false,
+      "regenerate-initramfs" : false,
+      "base-local-replacements" : [
+      ],
+      "container-image-reference-digest" : "sha256:ccf0625400000000000000000000000000000000000000000000000000007e88",
+      "checksum" : "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d",
+      "requested-base-local-replacements" : {
+      },
+      "requested-packages" : [
+      ],
+      "serial" : 0,
+      "timestamp" : 1760324400,
+      "packages" : [
+      ],
+      "staged" : false,
+      "version" : "44.20261013.0",
+      "requested-base-removals" : [
+      ],
+      "container-image-reference" : "ostree-unverified-registry:ghcr.io/mauvely/os:stable",
+      "base-remote-replacements" : {
+      }
+    },
+    {
+      "requested-local-packages" : {
+      },
+      "base-commit-meta" : {
+        "ostree.bootable" : true,
+        "ostree.composefs.digest.v0" : "c0ffee0000000000000000000000000000000000000000000000000000000000",
+        "ostree.linux" : "6.16.9-300.fc44.x86_64",
+        "version" : "44.20261006.0"
+      },
+      "base-removals" : [
+      ],
+      "unlocked" : "none",
+      "booted" : false,
+      "requested-local-fileoverride-packages" : {
+      },
+      "id" : "default-0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0.0",
+      "osname" : "default",
+      "pinned" : false,
+      "regenerate-initramfs" : false,
+      "base-local-replacements" : [
+      ],
+      "container-image-reference-digest" : "sha256:e18b1d751fd371ccd79c52fe40c74f87b90f9e53077f154cce7478575c2cda77",
+      "checksum" : "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "requested-base-local-replacements" : {
+      },
+      "requested-packages" : [
+      ],
+      "serial" : 0,
+      "timestamp" : 1759719600,
+      "packages" : [
+      ],
+      "staged" : false,
+      "version" : "44.20261006.0",
+      "requested-base-removals" : [
+      ],
+      "container-image-reference" : "ostree-unverified-registry:ghcr.io/mauvely/os:stable",
+      "base-remote-replacements" : {
+      }
+    }
+  ],
+  "transaction" : null,
+  "cached-update" : null,
+  "update-driver" : null
+}

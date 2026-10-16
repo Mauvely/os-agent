@@ -1,6 +1,7 @@
 # os-agent
 
-`mauvelyd`, the Mauvely OS device agent, in Rust.
+`mauvelyd`, the Mauvely OS device agent, and `mauvely-session`, its helper in
+each graphical session, in Rust.
 
 The design and the frozen agent API (enrolment, signed check-ins) are in brief
 19: `Website/website-internal/docs/launch/plans/19-mauvely-os.md` in the
@@ -12,9 +13,14 @@ Mauvely superproject.
 
 ## Layout
 
-A Cargo workspace with one crate, `crates/mauvelyd`: a library holding the
-logic and a thin binary (`main.rs`). The service unit is
-`dist/mauvelyd.service`.
+A Cargo workspace with two crates:
+- `crates/mauvelyd`: a library holding the logic and a thin binary
+  (`main.rs`). The service unit is `dist/mauvelyd.service`.
+- `crates/mauvely-session`: a binary, run as the person by the user unit
+  `dist/mauvely-session.service`. It tells them when a restart finishes an
+  update (brief 22, U2); the SSO broker (S2) joins it later.
+
+`mauvelyd`'s modules:
 
 | Module | Holds |
 |---|---|
@@ -45,7 +51,11 @@ logic and a thin binary (`main.rs`). The service unit is
 - **`cargo test` must pass** without root, a TPM, flatpak or network.
   `cargo clippy --all-targets -- -D warnings` stays clean; code is
   `cargo fmt`-formatted.
-- **No async runtime.** It is one loop, and it blocks.
+- **No async runtime.** It is one loop, and it blocks. `mauvely-session` uses
+  zbus's blocking API, which runs zbus's own executor thread; no tokio.
+- **`mauvely-session` runs as the person, never as root.** It changes nothing
+  on the machine but its own file in `$XDG_STATE_HOME/mauvely/`, and asks
+  logind for a reboot only when the person clicks Restart.
 - `CARGO_BUILD_JOBS=24` at most here, 8 on CI.
 
 ## Handing off

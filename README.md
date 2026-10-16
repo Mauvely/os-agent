@@ -6,6 +6,10 @@
 - installs, removes and updates Flatpaks;
 - stages image updates.
 
+`mauvely-session` runs in each graphical session, as the person. When an
+update is staged it shows "Restart to finish updating" once, with a Restart
+button.
+
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
 talk only to the daemon over a local socket, never to the network.
 
@@ -14,7 +18,7 @@ Written in Rust. Licensed under the GNU GPL, version 3 or later.
 ## Build and test
 
 ```sh
-cargo build --release          # target/release/mauvelyd
+cargo build --release          # target/release/mauvelyd and mauvely-session
 cargo test                     # no root, TPM, flatpak or network needed
 cargo clippy --all-targets -- -D warnings
 ```
@@ -56,6 +60,8 @@ Enrolment itself needs root, because sealing the key does.
 |---|---|
 | Binary | `/usr/bin/mauvelyd` |
 | Unit | `/usr/lib/systemd/system/mauvelyd.service`, enabled |
+| Session binary | `/usr/bin/mauvely-session` |
+| Session unit | `/usr/lib/systemd/user/mauvely-session.service`, enabled globally (`systemctl --global enable`) |
 | Tools it runs | `flatpak`, `bootc`, `rpm-ostree`, `systemd-creds` |
 
 TLS roots are compiled in, so the image needs no CA bundle for the agent.
