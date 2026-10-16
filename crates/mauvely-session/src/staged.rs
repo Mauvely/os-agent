@@ -2,8 +2,9 @@
 //! the rule that says so once per staged deployment.
 //!
 //! `deployments` is rpm-ostreed's `Deployments` property. rpm-ostree sets
-//! `checksum` and `staged` on every entry (`deployment_populate_variant` in
-//! its `rust/src/daemon.rs`), and ostree stages at most one deployment.
+//! `checksum`, `staged` and `booted` on every entry
+//! (`deployment_populate_variant` in its `rust/src/daemon.rs`), and ostree
+//! stages at most one deployment.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -22,16 +23,25 @@ struct Status {
 struct Deployment {
     checksum: String,
     staged: bool,
+    booted: bool,
 }
 
-/// The staged deployment's checksum, or `None` when nothing is staged.
+/// The staged deployment's checksum, or `None` when nothing is staged or what
+/// is staged is the booted image again. That is a kernel-argument change, not
+/// an update: mauvely-seal's `rpm-ostree kargs` stages one on the first boot.
 pub fn staged(status_json: &[u8]) -> Result<Option<String>, Error> {
     let status: Status = serde_json::from_slice(status_json)?;
+    let booted = status
+        .deployments
+        .iter()
+        .find(|d| d.booted)
+        .map(|d| d.checksum.clone());
     Ok(status
         .deployments
         .into_iter()
         .find(|d| d.staged)
-        .map(|d| d.checksum))
+        .map(|d| d.checksum)
+        .filter(|c| Some(c) != booted.as_ref()))
 }
 
 /// One look at the machine. A staged deployment is announced with `notify`,
@@ -76,6 +86,14 @@ mod tests {
         assert_eq!(staged(BOOTED).unwrap(), None);
         assert!(staged(b"not json").is_err());
         assert!(staged(br#"{"deployments":[{"checksum":"aa"}]}"#).is_err());
+    }
+
+    #[test]
+    fn a_kargs_change_is_not_an_update() {
+        let same = br#"{"deployments":[
+            {"checksum":"aa","staged":true,"booted":false},
+            {"checksum":"aa","staged":false,"booted":true}]}"#;
+        assert_eq!(staged(same).unwrap(), None);
     }
 
     #[test]

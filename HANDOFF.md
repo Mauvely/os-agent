@@ -140,11 +140,12 @@ session has run on a real Mauvely OS machine.** The agent API is unchanged.
   notification uses the logout prompt, `org.kde.LogoutPrompt` on the session
   bus) does. Worth switching once it can be tried on Plasma. Check the
   interface name first.
-- **The first login after install sees "Restart to finish updating".**
-  mauvely-seal stages a kargs-only deployment before the first reboot
-  (os-image `proof/p5/evidence-first-boot.txt`), and the session announces
-  any staged deployment. A restart does finish something, but it is not an
-  update.
+- **A staged deployment of the booted image is not announced** (fixed the
+  same day). mauvely-seal stages a kargs-only one before the first reboot
+  (os-image `proof/p5/evidence-first-boot.txt`), and the first login would
+  have said "Restart to finish updating" for it. `staged::staged` now skips a
+  staged checksum equal to the booted one, so a kargs-only change from
+  `kargs.d` is not announced either.
 - **Each poll D-Bus-activates rpm-ostreed**, which logs a client connecting
   and leaving: a few journal lines every 5 minutes per session.
 - **A `finalization-locked` staged deployment** (`--download-only`) is
