@@ -21,7 +21,7 @@ logic and a thin binary (`main.rs`). The service unit is
 | `signing` | The `mauvely-device-v1` message and the `X-Mauvely-*` headers |
 | `api` | The wire types and the signed `ureq` client |
 | `flatpak`, `bootc`, `creds` | A trait each, the real CLI behind it, and its argv builders and output parsers |
-| `reconcile` | Brief 19's reconcile rules, as one function over the traits |
+| `reconcile` | Brief 19's reconcile rules, as one function over the traits, and brief 22's Flatpak updates |
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
 | `state`, `facts`, `schedule` | Files on disk, hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
@@ -29,9 +29,10 @@ logic and a thin binary (`main.rs`). The service unit is
 ## Rules
 
 - **The daemon runs as root.** Every external command goes through a trait, so
-  it can be faked in tests: `flatpak`, `bootc`, `systemd-creds`. Never shell
-  out with an interpolated string: argv vectors only, built by small
-  functions that are tested without running anything.
+  it can be faked in tests: `flatpak`, `bootc` (and `rpm-ostree`, behind the
+  same trait), `systemd-creds`. Never shell out with an interpolated string:
+  argv vectors only, built by small functions that are tested without running
+  anything.
 - **A value from the server that starts with `-` is refused** before it
   reaches an argv (`command::operand`).
 - **Only `--system` Flatpak commands.** A user's `--user` installs are never

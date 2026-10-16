@@ -3,7 +3,7 @@
 `mauvelyd` is the on-device daemon for Mauvely OS. It:
 - enrols the device with the management server;
 - checks in;
-- installs and removes Flatpaks;
+- installs, removes and updates Flatpaks;
 - stages image updates.
 
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
@@ -37,7 +37,7 @@ It runs as root, from `dist/mauvelyd.service`.
 | `/etc/mauvely/enrol` | The enrolment token. Deleted once enrolment succeeds |
 | `/var/lib/mauvely/device.json` | The device id and organisation slug |
 | `/var/lib/mauvely/key.cred` | The device's Ed25519 seed, sealed with `systemd-creds` |
-| `/var/lib/mauvely/managed.json` | The apps and remotes the agent installed or configured |
+| `/var/lib/mauvely/managed.json` | The apps and remotes the agent installed or configured, and when it last updated Flatpaks |
 | `/var/lib/mauvely/status.json` | When the last check-in succeeded |
 
 `MAUVELY_CONFIG_DIR` and `MAUVELY_STATE_DIR` move the two directories, for
@@ -56,7 +56,7 @@ Enrolment itself needs root, because sealing the key does.
 |---|---|
 | Binary | `/usr/bin/mauvelyd` |
 | Unit | `/usr/lib/systemd/system/mauvelyd.service`, enabled |
-| Tools it runs | `flatpak`, `bootc`, `systemd-creds` |
+| Tools it runs | `flatpak`, `bootc`, `rpm-ostree`, `systemd-creds` |
 
 TLS roots are compiled in, so the image needs no CA bundle for the agent.
 
@@ -74,7 +74,12 @@ reconciles against the answer:
 3. apps marked `absent` are removed, whoever installed them, and so are apps
    the agent installed that the server no longer lists;
 4. remotes the agent added and the server no longer lists are deleted;
-5. a new image is staged with `bootc switch`. The agent never reboots.
+5. a different image is staged with `bootc switch`, and the booted one is
+   upgraded with `bootc upgrade`. Another image staged over a wanted booted
+   one is discarded first, with `rpm-ostree cleanup --pending`. The agent
+   never reboots;
+6. at most every 6 hours, system Flatpaks are updated, and runtimes no system
+   app uses are removed.
 
 A user's own `--user` installs are never listed or touched. A failure in
 one step is reported at the next check-in and does not stop the others.

@@ -163,9 +163,20 @@ pub fn reconcile(
                     errors.push(format!("bootc upgrade {want}: {e}"));
                 }
             }
-            // The booted image is wanted, but another is staged over it. An
-            // upgrade now would follow the staged one, so it waits (HANDOFF).
-            Some(s) if s.booted_image.as_deref() == Some(want) => {}
+            // The booted image is wanted, but another is staged over it, as
+            // when a collection moves back from next to stable. An upgrade
+            // follows the staged image, so that is discarded first.
+            Some(s) if s.booted_image.as_deref() == Some(want) => match bootc.discard_staged() {
+                Ok(()) => {
+                    if let Err(e) = bootc.upgrade() {
+                        errors.push(format!("bootc upgrade {want}: {e}"));
+                    }
+                }
+                Err(e) => errors.push(format!(
+                    "discard staged {}: {e}",
+                    s.staged_image.as_deref().unwrap_or_default()
+                )),
+            },
             Some(_) => {
                 if let Err(e) = bootc.switch(want) {
                     errors.push(format!("bootc switch {want}: {e}"));
@@ -175,6 +186,31 @@ pub fn reconcile(
     }
 
     LastApply::from_errors(errors)
+}
+
+/// System Flatpaks are updated at most this often (brief 22, U2).
+pub const FLATPAK_UPDATE_S: u64 = 6 * 3600;
+
+/// `flatpak update`, then `flatpak uninstall --unused`, when the last run
+/// that succeeded is `FLATPAK_UPDATE_S` old. The agent calls it after
+/// `reconcile`, so it never runs during an install. A failed run is tried
+/// again at the next check-in. Returns the errors.
+pub fn update_flatpaks(managed: &mut Managed, flatpak: &dyn Flatpak, now: u64) -> Vec<String> {
+    // Either way round: a clock set back does not stop updates for good.
+    if now.abs_diff(managed.flatpaks_updated) < FLATPAK_UPDATE_S {
+        return Vec::new();
+    }
+    let mut errors = Vec::new();
+    if let Err(e) = flatpak.update() {
+        errors.push(format!("flatpak update: {e}"));
+    }
+    if let Err(e) = flatpak.uninstall_unused() {
+        errors.push(format!("flatpak uninstall --unused: {e}"));
+    }
+    if errors.is_empty() {
+        managed.flatpaks_updated = now;
+    }
+    errors
 }
 
 #[cfg(test)]
@@ -386,22 +422,28 @@ mod tests {
         run(&desired("img:next"), &fp, &bc, &mut managed);
         assert_eq!(bc.switches(), ["img:next"]);
 
-        // Back to the booted one with img:next still staged: no upgrade,
-        // which would follow img:next, and no switch.
-        run(&desired("img:stable"), &fp, &bc, &mut managed);
+        // Back to the booted one with img:next still staged: img:next is
+        // discarded, then the booted one upgraded. No switch.
+        assert_eq!(bc.discards(), 0);
+        let r = run(&desired("img:stable"), &fp, &bc, &mut managed);
+        assert!(r.ok);
+        assert_eq!(bc.discards(), 1);
+        assert_eq!(bc.status().unwrap().staged_image, None);
         assert_eq!(bc.switches(), ["img:next"]);
-        assert_eq!(bc.upgrades(), 2);
+        assert_eq!(bc.upgrades(), 3);
 
         // No image wanted: leave it.
         run(&Desired::default(), &fp, &bc, &mut managed);
         assert_eq!(bc.switches(), ["img:next"]);
-        assert_eq!(bc.upgrades(), 2);
+        assert_eq!(bc.upgrades(), 3);
+        assert_eq!(bc.discards(), 1);
 
         // A newer build of the booted image is already staged: left alone.
         let bc = FakeBootc::booted("img:stable");
         bc.switch("img:stable").unwrap();
         run(&desired("img:stable"), &fp, &bc, &mut managed);
         assert_eq!(bc.upgrades(), 0);
+        assert_eq!(bc.discards(), 0);
 
         // bootc status failed: nothing staged, and it is reported.
         let broken = FakeBootc::broken();
@@ -466,5 +508,39 @@ mod tests {
         let r = run(&desired, &fp, &bc, &mut managed);
         assert_eq!(r.errors.len(), 1);
         assert!(fp.remote_names().contains(&"flathub".to_string()));
+    }
+
+    #[test]
+    fn flatpaks_are_updated_at_most_every_six_hours() {
+        const T: u64 = 1_760_400_000;
+        let fp = FakeFlatpak::default();
+        let mut managed = Managed::default();
+
+        // Never updated: update, then remove what nothing uses.
+        assert!(update_flatpaks(&mut managed, &fp, T).is_empty());
+        assert_eq!(fp.log(), ["update", "uninstall --unused"]);
+        assert_eq!(managed.flatpaks_updated, T);
+
+        // Not again inside six hours.
+        fp.clear_log();
+        assert!(update_flatpaks(&mut managed, &fp, T + FLATPAK_UPDATE_S - 1).is_empty());
+        assert!(fp.log().is_empty(), "{:?}", fp.log());
+
+        // A failure is reported, not recorded, and tried again next time.
+        fp.fail_update(true);
+        let later = T + FLATPAK_UPDATE_S;
+        let errors = update_flatpaks(&mut managed, &fp, later);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].starts_with("flatpak update:"), "{errors:?}");
+        assert_eq!(fp.log(), ["update", "uninstall --unused"]);
+        assert_eq!(managed.flatpaks_updated, T);
+        fp.fail_update(false);
+        assert!(update_flatpaks(&mut managed, &fp, later + 900).is_empty());
+        assert_eq!(managed.flatpaks_updated, later + 900);
+
+        // A clock set back by more than the interval does not stop updates.
+        fp.clear_log();
+        assert!(update_flatpaks(&mut managed, &fp, T - FLATPAK_UPDATE_S).is_empty());
+        assert_eq!(fp.log(), ["update", "uninstall --unused"]);
     }
 }

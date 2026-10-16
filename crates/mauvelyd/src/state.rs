@@ -75,6 +75,10 @@ pub struct Device {
 pub struct Managed {
     pub apps: Vec<App>,
     pub remotes: Vec<ManagedRemote>,
+    /// When system Flatpaks were last updated without an error, in Unix
+    /// seconds. 0 is never, as in a file written before updates existed.
+    #[serde(default)]
+    pub flatpaks_updated: u64,
 }
 
 /// A remote the agent has configured.

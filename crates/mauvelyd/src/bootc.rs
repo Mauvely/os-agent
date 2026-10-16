@@ -1,5 +1,6 @@
-//! The OS image, through `bootc`. The agent only ever stages: it never
-//! applies an image and never reboots.
+//! The OS image, through `bootc`, and `rpm-ostree` for the one step bootc
+//! has no command for. The agent only ever stages: it never applies an image
+//! and never reboots.
 
 use serde_json::Value;
 
@@ -20,6 +21,9 @@ pub trait Bootc {
     /// Stages a newer build of the image the host already follows, when the
     /// registry has one, and does nothing when it has not.
     fn upgrade(&self) -> Result<(), Error>;
+    /// Drops the staged deployment, so the next boot is the booted image
+    /// again.
+    fn discard_staged(&self) -> Result<(), Error>;
 }
 
 /// The real `bootc` CLI.
@@ -37,6 +41,10 @@ impl Bootc for SystemBootc {
     fn upgrade(&self) -> Result<(), Error> {
         run(&upgrade_argv(), None).map(drop)
     }
+
+    fn discard_staged(&self) -> Result<(), Error> {
+        run(&discard_staged_argv(), None).map(drop)
+    }
 }
 
 pub(crate) fn switch_argv(image: &str) -> Result<Vec<String>, Error> {
@@ -49,6 +57,14 @@ pub(crate) fn switch_argv(image: &str) -> Result<Vec<String>, Error> {
 pub(crate) fn upgrade_argv() -> Vec<String> {
     // The same: no `--apply`, so it stages and never reboots.
     argv(&["bootc", "upgrade"])
+}
+
+pub(crate) fn discard_staged_argv() -> Vec<String> {
+    // bootc 1.16 has no command for this: `bootc rollback` drops the staged
+    // deployment but also makes the rollback one the default. rpm-ostree,
+    // which Kinoite ships beside bootc, drops only the staged one, on the
+    // same ostree sysroot.
+    argv(&["rpm-ostree", "cleanup", "--pending"])
 }
 
 /// Reads the `BootcHost` document `bootc status --json` prints. A machine not
@@ -121,5 +137,9 @@ mod tests {
         );
         assert!(switch_argv("--apply").is_err());
         assert_eq!(upgrade_argv(), ["bootc", "upgrade"]);
+        assert_eq!(
+            discard_staged_argv(),
+            ["rpm-ostree", "cleanup", "--pending"]
+        );
     }
 }

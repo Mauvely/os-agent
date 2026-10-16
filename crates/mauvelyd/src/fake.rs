@@ -34,6 +34,7 @@ struct FlatpakState {
     user: Vec<App>,
     remotes: Vec<Remote>,
     failing: Vec<String>,
+    update_fails: bool,
     log: Vec<String>,
 }
 
@@ -57,6 +58,9 @@ impl FakeFlatpak {
     }
     pub fn fail_install(&self, id: &str) {
         self.0.borrow_mut().failing.push(id.into());
+    }
+    pub fn fail_update(&self, fails: bool) {
+        self.0.borrow_mut().update_fails = fails;
     }
     pub fn log(&self) -> Vec<String> {
         self.0.borrow().log.clone()
@@ -156,12 +160,27 @@ impl Flatpak for FakeFlatpak {
         }
         Ok(())
     }
+
+    fn update(&self) -> Result<(), Error> {
+        let mut s = self.0.borrow_mut();
+        s.log.push("update".into());
+        if s.update_fails {
+            return Err(fail("error: unable to load summary".into()));
+        }
+        Ok(())
+    }
+
+    fn uninstall_unused(&self) -> Result<(), Error> {
+        self.0.borrow_mut().log.push("uninstall --unused".into());
+        Ok(())
+    }
 }
 
 pub struct FakeBootc {
     status: RefCell<Option<bootc::Status>>,
     switches: RefCell<Vec<String>>,
     upgrades: RefCell<usize>,
+    discards: RefCell<usize>,
 }
 
 impl FakeBootc {
@@ -174,6 +193,7 @@ impl FakeBootc {
             })),
             switches: RefCell::default(),
             upgrades: RefCell::default(),
+            discards: RefCell::default(),
         }
     }
 
@@ -183,6 +203,7 @@ impl FakeBootc {
             status: RefCell::new(None),
             switches: RefCell::default(),
             upgrades: RefCell::default(),
+            discards: RefCell::default(),
         }
     }
 
@@ -194,6 +215,10 @@ impl FakeBootc {
     /// newer build, so an upgrade stages nothing.
     pub fn upgrades(&self) -> usize {
         *self.upgrades.borrow()
+    }
+
+    pub fn discards(&self) -> usize {
+        *self.discards.borrow()
     }
 }
 
@@ -215,6 +240,14 @@ impl Bootc for FakeBootc {
 
     fn upgrade(&self) -> Result<(), Error> {
         *self.upgrades.borrow_mut() += 1;
+        Ok(())
+    }
+
+    fn discard_staged(&self) -> Result<(), Error> {
+        *self.discards.borrow_mut() += 1;
+        if let Some(s) = self.status.borrow_mut().as_mut() {
+            s.staged_image = None;
+        }
         Ok(())
     }
 }

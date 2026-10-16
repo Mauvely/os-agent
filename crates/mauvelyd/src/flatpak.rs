@@ -42,6 +42,10 @@ pub trait Flatpak {
     fn remote_delete(&self, name: &str) -> Result<(), Error>;
     fn install(&self, remote: &str, id: &str, branch: &str) -> Result<(), Error>;
     fn uninstall(&self, id: &str, branch: &str) -> Result<(), Error>;
+    /// Updates every system app and runtime.
+    fn update(&self) -> Result<(), Error>;
+    /// Removes the system runtimes and extensions no system app uses.
+    fn uninstall_unused(&self) -> Result<(), Error>;
 }
 
 /// The real `flatpak` CLI.
@@ -76,6 +80,14 @@ impl Flatpak for SystemFlatpak {
 
     fn uninstall(&self, id: &str, branch: &str) -> Result<(), Error> {
         run(&uninstall_argv(id, branch)?, None).map(drop)
+    }
+
+    fn update(&self) -> Result<(), Error> {
+        run(&update_argv(), None).map(drop)
+    }
+
+    fn uninstall_unused(&self) -> Result<(), Error> {
+        run(&uninstall_unused_argv(), None).map(drop)
     }
 }
 
@@ -166,6 +178,23 @@ pub(crate) fn uninstall_argv(id: &str, branch: &str) -> Result<Vec<String>, Erro
         "--noninteractive",
         &r,
     ]))
+}
+
+pub(crate) fn update_argv() -> Vec<String> {
+    argv(&["flatpak", "update", "--system", "-y", "--noninteractive"])
+}
+
+/// Only the system installation's own apps count as users of a runtime, so
+/// a runtime that only a person's `--user` app uses is removed too (HANDOFF).
+pub(crate) fn uninstall_unused_argv() -> Vec<String> {
+    argv(&[
+        "flatpak",
+        "uninstall",
+        "--system",
+        "-y",
+        "--noninteractive",
+        "--unused",
+    ])
 }
 
 /// `id//branch`, the partial ref `flatpak install` and `uninstall` take.
@@ -268,6 +297,8 @@ mod tests {
             remote_delete_argv("mauvely").unwrap(),
             install_argv("flathub", "org.mozilla.firefox", "stable").unwrap(),
             uninstall_argv("org.mozilla.firefox", "stable").unwrap(),
+            update_argv(),
+            uninstall_unused_argv(),
         ];
         for a in &all {
             assert_eq!(a[0], "flatpak");
@@ -299,6 +330,21 @@ mod tests {
                 "-y",
                 "--noninteractive",
                 "org.mozilla.firefox//stable"
+            ]
+        );
+        assert_eq!(
+            update_argv(),
+            ["flatpak", "update", "--system", "-y", "--noninteractive"]
+        );
+        assert_eq!(
+            uninstall_unused_argv(),
+            [
+                "flatpak",
+                "uninstall",
+                "--system",
+                "-y",
+                "--noninteractive",
+                "--unused"
             ]
         );
         assert_eq!(

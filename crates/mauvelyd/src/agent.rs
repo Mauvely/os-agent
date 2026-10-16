@@ -12,7 +12,7 @@ use crate::bootc::Bootc;
 use crate::creds::Creds;
 use crate::facts::Facts;
 use crate::flatpak::Flatpak;
-use crate::reconcile::{Inventory, reconcile};
+use crate::reconcile::{Inventory, reconcile, update_flatpaks};
 use crate::schedule::{self, Backoff};
 use crate::state::{self, Device, Managed, Paths, Status};
 use crate::{AGENT_VERSION, Error, signing};
@@ -217,6 +217,8 @@ impl<'a> Agent<'a> {
             host.flatpak,
             host.bootc,
         );
+        let updates = update_flatpaks(&mut self.managed, host.flatpak, api::now());
+        result = LastApply::from_errors([result.errors, updates].concat());
         if let Err(e) = state::write_json(&self.paths.managed(), &self.managed) {
             result = LastApply::from_errors([result.errors, vec![e.to_string()]].concat());
         }
@@ -539,6 +541,68 @@ mod tests {
         assert_eq!(firefox["managed"], true);
         assert_eq!(firefox["remote"], "flathub");
         assert_eq!(second["agent_version"], AGENT_VERSION);
+    }
+
+    #[test]
+    fn flatpaks_update_after_the_installs_and_not_again_after_a_restart() {
+        let desired = r#"{"device_id":"dev_1","desired":{"image":null,
+          "remotes":[{ "name": "flathub", "url": "https://dl.flathub.org/repo/", "gpg_key": "AAEC" }],
+          "apps":[{ "id": "org.mozilla.firefox", "branch": "stable", "remote": "flathub", "state": "installed" }]},
+          "interval_s":900}"#;
+        let server = FakeServer::start(vec![(200, desired.into()); 3]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        fp.fail_update(true);
+        let mut agent = Agent::load(
+            paths.clone(),
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+
+        // The update comes after the install, and fails.
+        agent.tick();
+        assert_eq!(
+            fp.log(),
+            [
+                "remote-add flathub https://dl.flathub.org/repo/ key=000102",
+                "install flathub org.mozilla.firefox//stable",
+                "update",
+                "uninstall --unused",
+            ]
+        );
+
+        // So it is tried again at the next check-in, and succeeds.
+        fp.clear_log();
+        fp.fail_update(false);
+        agent.tick();
+        assert_eq!(fp.log(), ["update", "uninstall --unused"]);
+        let managed: Managed = state::read_json(&paths.managed()).unwrap().unwrap();
+        assert!(managed.flatpaks_updated > 0);
+
+        // A restart inside six hours does not run it again.
+        fp.clear_log();
+        let mut agent = Agent::load(
+            paths,
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+        agent.tick();
+        assert!(fp.log().is_empty(), "{:?}", fp.log());
+
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 3);
+        let errors = body(&reqs[1])["last_apply"]["errors"].clone();
+        assert_eq!(errors.as_array().unwrap().len(), 1, "{errors}");
+        assert!(errors[0].as_str().unwrap().starts_with("flatpak update:"));
     }
 
     #[test]
