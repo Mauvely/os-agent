@@ -17,6 +17,12 @@ Restart=on-failure
 RestartSec=30s
 StateDirectory=mauvely
 StateDirectoryMode=0700
+# /run/mauvely/installed.json, which mauvely-session reads as the person to say
+# an app is ready. Everyone reads it; it stays through a restart of the agent
+# and goes at the next boot.
+RuntimeDirectory=mauvely
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 
 # Hardening that still lets flatpak, bootc and systemd-creds run as root.
 # A user's --user installs live under /home and stay out of reach.

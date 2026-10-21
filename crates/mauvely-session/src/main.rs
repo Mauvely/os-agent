@@ -1,14 +1,17 @@
 //! `mauvely-session`, the Mauvely OS helper in each graphical session. It
 //! runs as the person, from `dist/mauvely-session.service`.
 //!
-//! It does two things:
+//! It does three things:
 //! - when an update is staged, it says once that a restart finishes it, and
 //!   restarts when asked (brief 22, U2);
 //! - it is the sign-in broker: it links this computer to the person's
 //!   Mauvely account once, then signs the Mauvely apps and the browsers in
-//!   from that (brief 22, S2, in `broker`).
+//!   from that (brief 22, S2, in `broker`);
+//! - when the agent has installed an app, it says once that the app is ready,
+//!   and opens it when asked (`ready`).
 
 mod broker;
+mod ready;
 mod staged;
 
 use std::collections::HashMap;
@@ -30,6 +33,15 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 const POLL: Duration = Duration::from_secs(300);
 const RESTART: &str = "restart";
 const SIGN_IN: &str = "sign-in";
+const OPEN: &str = "open";
+
+/// How often the agent's list of installs is looked at: the person is
+/// waiting for the app, unlike for an update.
+const READY_POLL: Duration = Duration::from_secs(5);
+/// What `mauvelyd` writes, and where flatpak exports each system app's
+/// desktop file.
+const INSTALLED: &str = "/run/mauvely/installed.json";
+const APPLICATIONS: &str = "/var/lib/flatpak/exports/share/applications";
 
 #[zbus::proxy(
     interface = "org.freedesktop.Notifications",
@@ -106,10 +118,23 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let restart_on_screen = Arc::clone(&shown);
     let offer_on_screen = Arc::clone(&offered);
     let linker = broker.clone();
+    let openable = Arc::new(ready::Openable::default());
+    let open_on_screen = Arc::clone(&openable);
     std::thread::spawn(move || {
         for click in clicks {
             let Ok(args) = click.args() else { continue };
-            if args.action_key == RESTART && args.id == restart_on_screen.load(Ordering::Relaxed) {
+            if args.action_key == OPEN
+                && let Some(desktop) = open_on_screen.take(args.id)
+            {
+                // The launcher is quick, but not on this thread.
+                std::thread::spawn(move || {
+                    if let Err(e) = ready::launch(&desktop) {
+                        eprintln!("mauvely-session: could not open {}: {e}", desktop.display());
+                    }
+                });
+            } else if args.action_key == RESTART
+                && args.id == restart_on_screen.load(Ordering::Relaxed)
+            {
                 // Interactive: polkit may ask, as when another user is
                 // logged in.
                 if let Err(e) = login.reboot(true) {
@@ -129,6 +154,10 @@ fn run() -> Result<std::convert::Infallible, Error> {
         eprintln!("mauvely-session: the session bus closed");
         std::process::exit(1);
     });
+
+    let tell = notifications.clone();
+    let ready_memory = state.join("mauvely/ready");
+    std::thread::spawn(move || tell_apps_are_ready(&tell, &ready_memory, &openable));
 
     loop {
         if let Some(broker) = &broker {
@@ -156,6 +185,57 @@ fn run() -> Result<std::convert::Infallible, Error> {
             eprintln!("mauvely-session: {e}");
         }
         std::thread::sleep(POLL);
+    }
+}
+
+/// Looks every few seconds at what the agent has installed, and says which
+/// apps are ready.
+fn tell_apps_are_ready(
+    notifications: &NotificationsProxy<'static>,
+    memory: &Path,
+    openable: &ready::Openable,
+) -> ! {
+    let mut last_error = String::new();
+    loop {
+        let result = ready::check(
+            Path::new(INSTALLED),
+            memory,
+            Path::new(APPLICATIONS),
+            &mut |message| {
+                let desktop = message.desktop();
+                let actions: &[&str] = if desktop.is_some() {
+                    &[OPEN, "Open"]
+                } else {
+                    &[]
+                };
+                let id = notifications.notify(
+                    "Mauvely OS",
+                    0,
+                    message.icon(),
+                    &message.summary(),
+                    "",
+                    actions,
+                    HashMap::new(),
+                    // The server's own: this is news, not something to act on
+                    // later.
+                    -1,
+                )?;
+                if let Some(desktop) = desktop {
+                    openable.add(id, desktop);
+                }
+                Ok(())
+            },
+        );
+        // Looked at every few seconds, so an error is said when it changes.
+        match result {
+            Ok(()) => last_error.clear(),
+            Err(e) if e.to_string() != last_error => {
+                eprintln!("mauvely-session: apps ready: {e}");
+                last_error = e.to_string();
+            }
+            Err(_) => {}
+        }
+        std::thread::sleep(READY_POLL);
     }
 }
 

@@ -218,6 +218,10 @@ impl<'a> Agent<'a> {
             host.bootc,
         );
         let updates = update_flatpaks(&mut self.managed, host.flatpak, api::now(), &inventory.apps);
+        // A courtesy to the people logged in, so not an error of the apply.
+        if let Err(e) = state::record_installs(&self.paths, &applied.installed, api::now()) {
+            eprintln!("{e}");
+        }
         let mut errors = [applied.last_apply.errors, updates.errors].concat();
         let failed = [applied.last_apply.failed, updates.failed].concat();
         if let Err(e) = state::write_json(&self.paths.managed(), &self.managed) {
@@ -294,6 +298,7 @@ mod tests {
         let paths = Paths {
             config_dir: dir.path().join("etc"),
             state_dir: dir.path().join("state"),
+            run_dir: dir.path().join("run"),
         };
         fs::create_dir_all(&paths.config_dir).unwrap();
         fs::write(paths.server(), format!("{server}\n")).unwrap();
@@ -555,6 +560,54 @@ mod tests {
         assert_eq!(firefox["managed"], true);
         assert_eq!(firefox["remote"], "flathub");
         assert_eq!(second["agent_version"], AGENT_VERSION);
+    }
+
+    #[test]
+    fn a_checkin_records_the_apps_it_installed_once_and_not_the_ones_that_failed() {
+        let desired = r#"{"device_id":"dev_1","desired":{"image":null,
+          "remotes":[{ "name": "flathub", "url": "https://dl.flathub.org/repo/", "gpg_key": "AAEC" }],
+          "apps":[{ "id": "org.mozilla.firefox", "branch": "stable", "remote": "flathub", "state": "installed" },
+                  { "id": "org.broken.App", "branch": "stable", "remote": "flathub", "state": "installed" },
+                  { "id": "org.kde.kate", "branch": "stable", "remote": "flathub", "state": "installed" }]},
+          "interval_s":900}"#;
+        let server = FakeServer::start(vec![(200, desired.into()); 2]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let fp = FakeFlatpak::default();
+        fp.fail_install("org.broken.App");
+        // Already there, so not an install.
+        fp.add_system(app("org.kde.kate", "fedora"));
+        let bc = FakeBootc::booted("img");
+        let mut agent = Agent::load(
+            paths.clone(),
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+
+        assert!(!paths.installed().exists());
+        agent.tick();
+        let first: Value = serde_json::from_slice(&fs::read(paths.installed()).unwrap()).unwrap();
+        let ids: Vec<&str> = first["installs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["org.mozilla.firefox"]);
+        assert_eq!(first["installs"][0]["branch"], "stable");
+        let at = first["installs"][0]["at"].as_u64().unwrap();
+        assert!(api::now().abs_diff(at) < 60, "{at} is not now");
+
+        // The failed one is tried again and fails again: still not recorded,
+        // and what was recorded is not recorded twice.
+        agent.tick();
+        let second: Value = serde_json::from_slice(&fs::read(paths.installed()).unwrap()).unwrap();
+        assert_eq!(second, first);
+        drop(server);
     }
 
     #[test]
