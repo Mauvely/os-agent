@@ -571,6 +571,7 @@ mod tests {
             [
                 "remote-add flathub https://dl.flathub.org/repo/ key=000102",
                 "install flathub org.mozilla.firefox//stable",
+                "override org.mozilla.firefox",
                 "update",
                 "uninstall --unused",
             ]

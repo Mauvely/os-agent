@@ -35,6 +35,7 @@ struct FlatpakState {
     remotes: Vec<Remote>,
     failing: Vec<String>,
     update_fails: bool,
+    grant_fails: bool,
     log: Vec<String>,
 }
 
@@ -61,6 +62,9 @@ impl FakeFlatpak {
     }
     pub fn fail_update(&self, fails: bool) {
         self.0.borrow_mut().update_fails = fails;
+    }
+    pub fn fail_grant(&self, fails: bool) {
+        self.0.borrow_mut().grant_fails = fails;
     }
     pub fn log(&self) -> Vec<String> {
         self.0.borrow().log.clone()
@@ -172,6 +176,15 @@ impl Flatpak for FakeFlatpak {
 
     fn uninstall_unused(&self) -> Result<(), Error> {
         self.0.borrow_mut().log.push("uninstall --unused".into());
+        Ok(())
+    }
+
+    fn grant_broker(&self, id: &str) -> Result<(), Error> {
+        let mut s = self.0.borrow_mut();
+        s.log.push(format!("override {id}"));
+        if s.grant_fails {
+            return Err(fail("error: unable to write the override".into()));
+        }
         Ok(())
     }
 }

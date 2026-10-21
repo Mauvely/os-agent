@@ -79,6 +79,9 @@ pub struct Managed {
     /// seconds. 0 is never, as in a file written before updates existed.
     #[serde(default)]
     pub flatpaks_updated: u64,
+    /// The browsers granted mauvely-session's broker socket.
+    #[serde(default)]
+    pub granted: Vec<String>,
 }
 
 /// A remote the agent has configured.

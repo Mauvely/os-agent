@@ -27,6 +27,10 @@ pub struct Inventory {
     pub image: Option<bootc::Status>,
 }
 
+/// The browsers mauvely-session's broker answers `browser` to. Its own list,
+/// `broker::caller::BROWSERS`, must name the same ones.
+pub const BROWSERS: [&str; 2] = ["org.chromium.Chromium", "org.mozilla.firefox"];
+
 pub fn reconcile(
     desired: &Desired,
     inventory: &Inventory,
@@ -129,6 +133,23 @@ pub fn reconcile(
     managed
         .apps
         .retain(|m| installed.iter().any(|i| i.is(&m.id, &m.branch)));
+
+    // Each system browser may reach mauvely-session's broker (brief 22, S2),
+    // whoever installed it. Granted once; a browser removed and installed
+    // again is granted again.
+    for id in BROWSERS {
+        if !installed.iter().any(|i| i.id == id) {
+            managed.granted.retain(|g| g != id);
+            continue;
+        }
+        if managed.granted.iter().any(|g| g == id) {
+            continue;
+        }
+        match flatpak.grant_broker(id) {
+            Ok(()) => managed.granted.push(id.into()),
+            Err(e) => errors.push(format!("override {id}: {e}")),
+        }
+    }
 
     // Remotes the agent added and the server no longer lists.
     let unlisted: Vec<String> = managed
@@ -529,6 +550,87 @@ mod tests {
         let r = run(&desired, &fp, &bc, &mut managed);
         assert_eq!(r.errors.len(), 1);
         assert!(fp.remote_names().contains(&"flathub".to_string()));
+    }
+
+    #[test]
+    fn system_browsers_are_granted_the_broker_once() {
+        let fp = FakeFlatpak::default();
+        let bc = FakeBootc::booted("img:stable");
+        let mut managed = Managed::default();
+        // Installed before the agent knew about the broker, or by someone
+        // else: granted all the same.
+        fp.add_system(app("org.chromium.Chromium", "flathub"));
+        // A person's own install: never.
+        fp.add_user(app("org.mozilla.firefox", "flathub"));
+        let mut desired = Desired {
+            image: None,
+            remotes: vec![remote("flathub")],
+            apps: vec![
+                want("org.mozilla.firefox", "flathub", AppState::Installed),
+                want("com.mauvely.compose", "flathub", AppState::Installed),
+            ],
+        };
+        let r = run(&desired, &fp, &bc, &mut managed);
+        assert!(r.ok, "{:?}", r.errors);
+        let overrides: Vec<String> = fp
+            .log()
+            .into_iter()
+            .filter(|l| l.starts_with("override"))
+            .collect();
+        assert_eq!(
+            overrides,
+            [
+                "override org.chromium.Chromium",
+                "override org.mozilla.firefox"
+            ]
+        );
+        assert_eq!(
+            managed.granted,
+            ["org.chromium.Chromium", "org.mozilla.firefox"]
+        );
+
+        // Once.
+        fp.clear_log();
+        run(&desired, &fp, &bc, &mut managed);
+        assert!(fp.log().is_empty(), "{:?}", fp.log());
+
+        // Removed, then installed again: granted again.
+        desired.apps[0].state = AppState::Absent;
+        run(&desired, &fp, &bc, &mut managed);
+        assert_eq!(managed.granted, ["org.chromium.Chromium"]);
+        fp.clear_log();
+        desired.apps[0].state = AppState::Installed;
+        run(&desired, &fp, &bc, &mut managed);
+        assert_eq!(
+            fp.log(),
+            [
+                "install flathub org.mozilla.firefox//stable",
+                "override org.mozilla.firefox"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failed_grant_is_reported_and_tried_again() {
+        let fp = FakeFlatpak::default();
+        let bc = FakeBootc::booted("img:stable");
+        let mut managed = Managed::default();
+        fp.add_system(app("org.mozilla.firefox", "flathub"));
+        fp.fail_grant(true);
+        let r = run(&Desired::default(), &fp, &bc, &mut managed);
+        assert_eq!(r.errors.len(), 1);
+        assert!(
+            r.errors[0].starts_with("override org.mozilla.firefox:"),
+            "{:?}",
+            r.errors
+        );
+        assert!(managed.granted.is_empty());
+
+        fp.fail_grant(false);
+        fp.clear_log();
+        assert!(run(&Desired::default(), &fp, &bc, &mut managed).ok);
+        assert_eq!(fp.log(), ["override org.mozilla.firefox"]);
+        assert_eq!(managed.granted, ["org.mozilla.firefox"]);
     }
 
     #[test]

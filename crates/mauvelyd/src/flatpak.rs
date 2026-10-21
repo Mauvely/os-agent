@@ -46,6 +46,9 @@ pub trait Flatpak {
     fn update(&self) -> Result<(), Error>;
     /// Removes the system runtimes and extensions no system app uses.
     fn uninstall_unused(&self) -> Result<(), Error>;
+    /// Lets the app connect to mauvely-session's broker, read-only, through a
+    /// system override.
+    fn grant_broker(&self, id: &str) -> Result<(), Error>;
 }
 
 /// The real `flatpak` CLI.
@@ -88,6 +91,10 @@ impl Flatpak for SystemFlatpak {
 
     fn uninstall_unused(&self) -> Result<(), Error> {
         run(&uninstall_unused_argv(), None).map(drop)
+    }
+
+    fn grant_broker(&self, id: &str) -> Result<(), Error> {
+        run(&grant_broker_argv(id)?, None).map(drop)
     }
 }
 
@@ -197,6 +204,22 @@ pub(crate) fn uninstall_unused_argv() -> Vec<String> {
     ])
 }
 
+/// The broker's socket is `$XDG_RUNTIME_DIR/mauvely/broker`. `:ro` is enough
+/// to connect (brief 22's S0 spike 2), and stops the app replacing the socket.
+pub(crate) fn grant_broker_argv(id: &str) -> Result<Vec<String>, Error> {
+    operand("app", id)?;
+    if id.contains('/') {
+        return Err(Error::Invalid(format!("app {id:?} is not valid")));
+    }
+    Ok(argv(&[
+        "flatpak",
+        "override",
+        "--system",
+        "--filesystem=xdg-run/mauvely:ro",
+        id,
+    ]))
+}
+
 /// `id//branch`, the partial ref `flatpak install` and `uninstall` take.
 fn app_ref(id: &str, branch: &str) -> Result<String, Error> {
     operand("app", id)?;
@@ -299,6 +322,7 @@ mod tests {
             uninstall_argv("org.mozilla.firefox", "stable").unwrap(),
             update_argv(),
             uninstall_unused_argv(),
+            grant_broker_argv("org.mozilla.firefox").unwrap(),
         ];
         for a in &all {
             assert_eq!(a[0], "flatpak");
@@ -348,6 +372,16 @@ mod tests {
             ]
         );
         assert_eq!(
+            grant_broker_argv("org.chromium.Chromium").unwrap(),
+            [
+                "flatpak",
+                "override",
+                "--system",
+                "--filesystem=xdg-run/mauvely:ro",
+                "org.chromium.Chromium"
+            ]
+        );
+        assert_eq!(
             remote_add_argv(
                 "flathub",
                 "https://dl.flathub.org/repo/",
@@ -390,6 +424,9 @@ mod tests {
         assert!(install_argv("flathub", "a.b", "x/y").is_err());
         assert!(uninstall_argv("a.b", "").is_err());
         assert!(remote_delete_argv("--force").is_err());
+        assert!(grant_broker_argv("--reset").is_err());
+        assert!(grant_broker_argv("").is_err());
+        assert!(grant_broker_argv("a/b").is_err());
     }
 
     #[test]
