@@ -18,7 +18,8 @@ A Cargo workspace with two crates:
   (`main.rs`). The service unit is `dist/mauvelyd.service`.
 - `crates/mauvely-session`: a binary, run as the person by the user unit
   `dist/mauvely-session.service`. It tells them when a restart finishes an
-  update (brief 22, U2), and is the sign-in broker (S2): `docs/broker.md`.
+  update (brief 22, U2), is the sign-in broker (S2): `docs/broker.md`, and
+  says when an app the agent installed is ready.
 
 `mauvelyd`'s modules:
 
@@ -29,7 +30,7 @@ A Cargo workspace with two crates:
 | `flatpak`, `bootc`, `creds` | A trait each, the real CLI behind it, and its argv builders and output parsers |
 | `reconcile` | Brief 19's reconcile rules, as one function over the traits, and brief 22's Flatpak updates |
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
-| `state`, `facts`, `schedule` | Files on disk, hardware facts, backoff and jitter |
+| `state`, `facts`, `schedule` | Files on disk (`/etc/mauvely`, `/var/lib/mauvely`, and `/run/mauvely/installed.json`, which everyone reads), hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
 
 `mauvely-session`'s modules:
@@ -37,6 +38,8 @@ A Cargo workspace with two crates:
 | Module | Holds |
 |---|---|
 | `staged` | Whether an update is staged, and saying so once |
+| `ready` | "<App> is ready": the agent's `/run/mauvely/installed.json`, what this person has been told, and Open |
+| `dialog` | The sign-in offer and code as `kdialog` windows; the code goes to kdialog on stdin |
 | `broker::caller` | Who may ask the broker for what, pure |
 | `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info`, its `/app` on disk, the deploy's remote |
 | `broker::wire`, `broker::socket` | Suite's framing; the socket and a thread per caller |
@@ -61,6 +64,9 @@ A Cargo workspace with two crates:
   seed and the `os` session travel to `systemd-creds` over stdin, never as an
   argument or a file. The broker's session types print `<redacted>` for
   `{:?}`.
+- **The device-link code never reaches an argv or a URL**, which every local
+  user can read, and with it approve the link for their own account. The code
+  window is `kdialog --textbox -`, fed on stdin (`dialog`).
 - **`cargo test` must pass** without root, a TPM, flatpak or network.
   `cargo clippy --all-targets -- -D warnings` stays clean; code is
   `cargo fmt`-formatted.
@@ -68,8 +74,8 @@ A Cargo workspace with two crates:
   zbus's blocking API, which runs zbus's own executor thread; no tokio.
 - **`mauvely-session` runs as the person, never as root.** It changes nothing
   on the machine but its own files in `$XDG_STATE_HOME/mauvely/` and its
-  socket in `$XDG_RUNTIME_DIR/mauvely/`, and asks logind for a reboot only
-  when the person clicks Restart.
+  socket in `$XDG_RUNTIME_DIR/mauvely/`, asks logind for a reboot only when
+  the person clicks Restart, and opens an app only when they click Open.
 - **`broker::caller` is the broker's security boundary.** Change it with its
   tests. `BROKERABLE` is never narrower than website-main's `KNOWN_CLIENTS`
   without `suite` and `os`, and `BROWSERS` names the same browsers as

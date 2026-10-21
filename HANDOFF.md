@@ -1,5 +1,163 @@
 # Handoff
 
+## 2026-10-21, evening: sign-in as windows, "<App> is ready", failed apps in the check-in
+
+Four commits on `main` after `c6e1d21`: `6b29744` (failed list), `0da6ad1`
+(ready), `ff760a1` (windows), `d0ac465` (`gio launch`), and the one that holds
+this file and the docs. `cargo test` passes (mauvelyd 64 + 1 + 1, mauvely-session
+96), clippy and fmt are clean, `cargo build --release --locked` builds both and
+`Cargo.lock` is unchanged. `agent.ref` in os-image is not touched. The commits
+end `Co-Authored-By: Claude Sonnet 5.5`, which is the model that wrote them; the
+brief asked for Opus 5.5, as the older commits say.
+
+### 1. The sign-in offer and the code are windows (`src/dialog.rs`)
+
+- **The offer** is `kdialog --yesno`, "Link this computer to your Mauvely
+  account.", buttons "Open the sign-in page" and "Later". `--yesno` is the only
+  mode with a text and two buttons whose labels can be set. Exit 0 is the first
+  button, 1 the second, 2 a closed window (all three seen with real kdialog
+  26.08.2 in the nested sway). 0 starts the link, as the Sign in button did;
+  1 and 2 do nothing, as dismissing the notification did.
+- **The code** is `kdialog --textbox - 380 150`, shown once the link has
+  started: "Enter this code to sign in" over the code in large type. It stays
+  until the link is approved, declined or expires; its OK closes it and the link
+  carries on.
+- **Decision: the code is not in any argv.** `--yesno`/`--msgbox` take their
+  text as an argument, which every uid can read under `/proc`: the thing the
+  S2 review fix took out of `xdg-open`. `--textbox -` reads its text from
+  stdin (kdialog's `widgets.cpp`, `file == "-"`). The price: the text box has
+  one button, "OK", which kdialog cannot rename, so the code window is not the
+  two-button window the brief pictured; and kdialog feeds what it reads to
+  `QTextEdit::append`, which turns it into rich text when it looks like some
+  (that is how the code comes out large). So only `[A-Za-z0-9-]{1,32}` is sent,
+  and anything else is a notification. The end-to-end run looked at every
+  process's argv while the code window was up: no code.
+- **Fallback to the notifications**, which are unchanged: kdialog not found, the
+  code not plainly a code, or kdialog dying (signal, or an exit status that is
+  not 0, 1 or 2; Qt aborts without a display). A window that dies minutes in
+  still falls back, from its waiting thread. Seen with a fake kdialog that is
+  missing and one that crashes.
+- One window at a time; a new window, the confirmation or the end of the link
+  takes the old one down, and a window taken down here is never reported as an
+  answer. A waiting thread polls `try_wait` every 100 ms so a kill and a wait
+  cannot cross.
+- **Seen for real** (nested sway, real kdialog, real `mauvely-session` debug
+  build, fake accounts and fake notification server on a private bus): both
+  windows drawn, "Open the sign-in page" started the link and opened the page
+  without the code, OK on the code window left the link going, approval left no
+  window and showed "Signed in to Mauvely as …". Screenshots are in the session
+  scratchpad, not committed.
+- **Not seen, and worth a look on Plasma:**
+  - **The browser may cover the code window.** `run_link` shows the code, then
+    opens the page; a browser that is not running yet maps its window a few
+    seconds later and sits over a window with no always-on-top. If that is the
+    experience, the options are showing the code after `open`, or a short wait
+    between them; neither was done, as the broker's order is not mine to change
+    on a guess.
+  - KWin's placement and focus for a window started by a service with no
+    activation token.
+  - The red "no" icon kdialog puts on "Later" and the question-mark icon are
+    kdialog's; `--icon` only sets the window icon.
+- Tests: `dialog.rs` runs `fixtures/fake-kdialog.sh`, linked into a directory
+  of its own. It is a link because a script written by one test thread while
+  another forks fails with "text file busy"; that was a 40 % flake before.
+
+### 2. "<App> is ready"
+
+- **`mauvelyd`** writes `/run/mauvely/installed.json` after the reconcile, for
+  each app `flatpak install` succeeded for (not one already there, not one that
+  failed), through `reconcile`'s new `Applied { last_apply, installed }`:
+  `{"installs":[{"id":"…","branch":"stable","at":1760400000}]}`, oldest first,
+  the last 50, 0644, written to `.tmp` and renamed. A garbled file is replaced.
+  A failure to write it is logged and is not an error of the apply.
+  `dist/mauvelyd.service` has `RuntimeDirectory=mauvely`,
+  `RuntimeDirectoryMode=0755`, `RuntimeDirectoryPreserve=yes`; a test reads the
+  unit for them. `MAUVELY_RUN_DIR` moves it, like the other two.
+- **`mauvely-session`** (`src/ready.rs`) looks every 5 s. "<name> is ready",
+  icon from the desktop file's `Icon=` (else `system-software-install`), one
+  action, Open, default timeout. Name and icon are the `[Desktop Entry]`
+  group's own `Name=`/`Icon=` in
+  `/var/lib/flatpak/exports/share/applications/<id>.desktop` (not `Name[de]`,
+  not an action's), cleaned of control characters and cut at 60.
+- **Several at once: up to 3 are one notification each; more is one "5 apps
+  are ready" with no Open.** An Open needs one app to open, and a person who logs
+  in after a night of installs is not buried.
+- **Once per person:** `$XDG_STATE_HOME/mauvely/ready`, one `<id> <branch> <at>`
+  per line, 0600 in the 0700 directory, written whole and renamed, pruned to
+  what the agent's file still holds, and not rewritten when nothing changed. An
+  app removed and installed again has a new `at`, so it is told again.
+- **Before the first login: nothing.** No memory file means the first look,
+  which only remembers what is there. Apps installed after a reboot but before
+  a later login are told then: /run is empty at boot, so only installs since.
+- An install with no exported desktop file, or one with no name, is remembered
+  and not shown. An id or branch that is not `[A-Za-z0-9_.-]`, starts with `-` or
+  `.`, or holds `..` is not an install at all (the id becomes a path); the agent's
+  file larger than 64 KiB is refused. A read error is logged once, not every 5 s.
+- **Open runs `gio launch <desktop file>`.** On Kinoite 44 the image has
+  `gtk-launch`, `kioclient`, `kstart`, `flatpak`, `gio`. `kioclient exec`
+  (first choice, KDE's own) shows an "untrusted launcher" dialog when the file is
+  not in an applications directory on its own search path; seen in a nested
+  session with the exports left off `XDG_DATA_DIRS`. `gio launch` takes the path,
+  asks nothing and needs no display. `flatpak run` puts the app in its own
+  `app-flatpak-<id>-<n>.scope`, so it does not end with the helper (flatpak 1.18.4
+  source).
+- **Not done:** the activation token. Plasma sends `ActivationToken` before
+  `ActionInvoked`; passing it as `XDG_ACTIVATION_TOKEN` to the launcher would let
+  KWin focus the new window. Without it the app may open behind the others.
+  Untried on Plasma.
+- **Not done:** localised names (`Name[de]`); the brief said `Name=`.
+- Seen on a private bus, as above, with `/run` and `/var/lib/flatpak` as tmpfs in
+  a private mount namespace: two apps already installed showed nothing; Compose
+  became "Compose is ready" with Open; two clicks ran the launcher once; five at
+  once were "5 apps are ready"; a restart told none of it again.
+
+### 3. `last_apply.failed`
+
+`{"ok", "errors", "failed": [{"id", "branch", "error"}]}`; `errors` is as it
+was. At most 50 entries (the first), each `error` cut to 500 characters counted
+in UTF-16 units, as the server counts them (website-devices' `reportedFailures`
+does `slice(0, 500)`), never inside a character. Left out of the body when
+empty, so a clean check-in is byte for byte what it was.
+- **Install and removal failures name their app exactly.**
+- **A failed `flatpak update` names an app only when flatpak's own line does:**
+  `Failed to update <id>: ` (`flatpak-cli-transaction.c`, 1.18.4: printed for the
+  first failed operation) matched against the installed apps. A runtime or an
+  error with no name stays text only. **The format is from flatpak's source and a
+  fixture written from it, not from a captured run**; if it never matches, the
+  update half is silent, not wrong.
+- Other failures (a remote, the image, a grant) are `errors` only.
+- website-devices (`worker/lib/failures.ts`) takes this as it stands: it keeps
+  the first 50, requires a three-element Flatpak id, a branch and a string error,
+  keeps an id/branch once.
+
+### Verified how
+
+- Test-first for the pure parts; each guard sabotaged once and a test failed:
+  the cap, the cut (UTF-16 and pair splitting), omitting `failed` when empty,
+  install/removal/update naming, the install list (failures, already-there),
+  the 50 limit, atomic and 0644 (under `umask 077` too), the unit's three lines;
+  the first-look baseline, one-per-install, id validation (each rule), the three
+  limit, name cleaning, group rules, the size cap, memory pruning, unchanged
+  look not rewriting, the memory's modes, the launcher's argv; the dialog's code
+  never in argv, the code check (length, `<`), exit statuses, failures, a window
+  taken down not reported, replacement, close, stdin closed.
+- Not sabotage-checkable: the `&` in the code check (an entity needs `;`, which
+  is checked).
+- The end-to-end harness is in the session scratchpad and is not committed
+  (`e2e2/`): a private bus (own `DISPLAY` number), fake notification server that
+  clicks on request, fake accounts in a network namespace, fake `kdialog`, `gio`,
+  `xdg-open`, `rpm-ostree`, the **real** `systemd-creds --user`, and the debug
+  `mauvely-session`. `MODE=overlay` for the ready path and the fallbacks,
+  `MODE=hsway` for real kdialog in the nested sway.
+
+### Never run
+
+- On Plasma or Mauvely OS: anything above. In particular the notification's Open
+  click, `gio launch` of a real exported Flatpak app from a user service, KWin
+  with the two windows, and the unit with the three new lines (it passes
+  `systemd-analyze verify` but for the missing binary).
+- A real failing `flatpak update`.
+
 ## 2026-10-21, later: the S2 review's fixes
 
 An adversarial review of S2 (`669f0e0..aab49ba`) found the caller check held,
@@ -15,7 +173,9 @@ clippy is clean.
    - Now: `verificationUri` opens without the code (refused if it carries
      it), the notification becomes "Enter this code to sign in" with the code
      as its body, and on success "Signed in to Mauvely as <email>". A
-     declined or expired link takes the code away.
+     declined or expired link takes the code away. (Since the evening of the
+     same day the offer and the code are kdialog windows first, and these
+     notifications are the fallback; see the top section.)
    - Tests: `start_answers`, `linking_opens_the_page_then_seals_the_session`,
      `a_declined_or_expired_link_leaves_it_signed_out`.
 2. **An app granted `xdg-run/mauvely` read-write could answer for the

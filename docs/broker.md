@@ -12,20 +12,28 @@ already speak.
 
 Once per local user, until M2's login fills the same store.
 
-1. At each graphical login with no `os` session, a notification: "Sign in to
-   Mauvely", one action, "Sign in". It stays until dismissed.
-2. "Sign in" starts a device link as client `os`
-   (`POST /api/auth/device/start`). The notification becomes "Enter this
-   code to sign in", with the code as its body, and the link page opens in
-   the default browser, through the OpenURI portal, or `xdg-open` when there
-   is none. **The page opens without the code**: whatever opens it puts the
-   address in an argv that every local user can read under `/proc`, and with
-   the code any of them could approve the link for their own account. Only a
-   page on the accounts origin is opened.
+1. At each graphical login with no `os` session, a window: "Sign in to
+   Mauvely", "Link this computer to your Mauvely account.", with two buttons,
+   "Open the sign-in page" and "Later". "Later" and closing the window leave
+   it signed out until the next login. Where `kdialog` is missing or fails,
+   the offer is a notification instead: "Sign in to Mauvely", one action,
+   "Sign in", which stays until dismissed.
+2. "Open the sign-in page" starts a device link as client `os`
+   (`POST /api/auth/device/start`). A second window, "Enter this code to sign
+   in" over the code in large type, stays up while the link is pending, and
+   the link page opens in the default browser, through the OpenURI portal, or
+   `xdg-open` when there is none. **The page opens without the code**:
+   whatever opens it puts the address in an argv that every local user can
+   read under `/proc`, and with the code any of them could approve the link
+   for their own account. Only a page on the accounts origin is opened. The
+   code window's OK closes it and nothing else: the link carries on, and the
+   code is not shown again. Without a window, the code is the body of a
+   notification.
 3. The broker polls `POST /api/auth/device/token` until the link is approved,
-   declined or expired (ten minutes).
-4. The notification becomes "Signed in to Mauvely as <email>", so a link to
-   an account that is not the person's is seen at once.
+   declined or expired (ten minutes). The code window goes when it ends.
+4. A notification, "Signed in to Mauvely as <email>", so a link to an account
+   that is not the person's is seen at once. This one is always a
+   notification.
 5. The `os` session is sealed with `systemd-creds --user encrypt`, stdin to
    stdout, into `$XDG_STATE_HOME/mauvely/os.cred` (mode `0600`, in a `0700`
    directory). Its expiry, address and accounts origin are sealed with it.
@@ -39,6 +47,34 @@ The `os` session ends, and the offer comes back, when a mint answers `401`
 when it was sealed for another accounts origin than this computer's now.
 Everything minted from it is forgotten with it. A file that does not unseal is
 kept, in case that passes, and the offer is shown; a new link replaces it.
+
+### The windows
+
+`mauvely-session/src/dialog.rs`. One window is up at a time: a new one, a
+confirmation or the end of the link takes the old one down, and nothing is
+said of a window this side closed.
+
+| Window | kdialog | Why |
+|---|---|---|
+| The offer | `--yesno`, `--yes-label "Open the sign-in page"`, `--no-label "Later"` | The only mode with a text and two buttons whose names can be set. Its text is an argument, so it holds no code |
+| The code | `--textbox -`, 380 by 150 | Reads its text from **standard input**. One button, "OK", which kdialog does not let us rename |
+
+How a window ended is read from kdialog's exit status, which `--yesno` gives
+as 0 for the first button, 1 for the second and 2 when the window is closed
+(each seen in a nested sway, kdialog 26.08). 0 accepts the offer; 1 and 2
+dismiss it. Anything else, or a signal, is a window that failed (Qt aborts
+when it has no display): the notification takes its place. A window that
+cannot be started at all, because kdialog is not there, is the same.
+
+**The code never reaches an argv.** `--yesno` and `--msgbox` take their text
+as an argument, and a window that showed the code that way would put it where
+every local user can read it, which is what moving the page's address off
+`xdg-open` was for. The code window is `--textbox -` instead: the code goes
+down a pipe that only kdialog holds. kdialog sets what it reads as rich text
+if it looks like some, which is how the code comes out large, so only a
+string that is plainly a code (letters, digits and `-`, at most 32) is sent;
+anything else is shown in a notification. The cost is a code window with one
+button.
 
 ### The accounts origin
 
@@ -236,6 +272,10 @@ session itself.
   read every argv under `/proc`, approving this computer's link for their own
   account. "Signed in to Mauvely as <email>" shows the account linked, should
   anything else go wrong.
+- **The code reaching kdialog on its standard input** stops the same thing
+  through the window. The offer's argv is fixed text, and the code window's
+  is `--textbox - 380 150`. Passing the code as the text of `--yesno` or
+  `--msgbox` was the simpler window, and was rejected for this reason.
 - **`.flatpak-info` read through the caller's root** stops a sandboxed app
   claiming another app's identity. Flatpak writes that file, mounts it
   read-only, and its seccomp filter refuses `unshare` of a user or mount

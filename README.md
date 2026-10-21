@@ -8,9 +8,10 @@
 
 `mauvely-session` runs in each graphical session, as the person. When an
 update is staged it shows "Restart to finish updating" once, with a Restart
-button. It is also the sign-in broker: it links the computer to the person's
-Mauvely account once, then signs the Mauvely apps and the browsers in from
-that (`docs/broker.md`).
+button. When the agent has installed an app it shows "<App> is ready" once,
+with an Open button. It is also the sign-in broker: it links the computer to
+the person's Mauvely account once, in a window, then signs the Mauvely apps
+and the browsers in from that (`docs/broker.md`).
 
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
 talk only to the daemon over a local socket, never to the network.
@@ -45,9 +46,10 @@ It runs as root, from `dist/mauvelyd.service`.
 | `/var/lib/mauvely/key.cred` | The device's Ed25519 seed, sealed with `systemd-creds` |
 | `/var/lib/mauvely/managed.json` | The apps and remotes the agent installed or configured, and when it last updated Flatpaks |
 | `/var/lib/mauvely/status.json` | When the last check-in succeeded |
+| `/run/mauvely/installed.json` | The last 50 apps installed since boot: `{"installs": [{"id", "branch", "at"}]}`, oldest first. Root's, readable by everyone |
 
-`MAUVELY_CONFIG_DIR` and `MAUVELY_STATE_DIR` move the two directories, for
-trying it without root:
+`MAUVELY_CONFIG_DIR`, `MAUVELY_STATE_DIR` and `MAUVELY_RUN_DIR` move the
+three directories, for trying it without root:
 
 ```sh
 mkdir -p /tmp/mv/etc && echo http://localhost:8798 > /tmp/mv/etc/server
@@ -75,8 +77,10 @@ The protocol is brief 19's agent API v1, in the Mauvely superproject at
 is signed with the device key; `tests/vectors/signing.json` pins the format
 and is shared with the server.
 
-Each check-in reports the system Flatpaks, remotes and image, then
-reconciles against the answer:
+Each check-in reports the system Flatpaks, remotes and image, and how the
+last apply went: `last_apply.errors`, and `last_apply.failed` naming the apps
+whose install, update or removal failed (at most 50, each error cut to 500
+characters). It then reconciles against the answer:
 1. remotes are added, or updated when their URL or key changed;
 2. apps marked `installed` are installed;
 3. apps marked `absent` are removed, whoever installed them, and so are apps
