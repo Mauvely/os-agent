@@ -49,9 +49,26 @@ pub trait Bootc {
 /// The real `bootc` CLI.
 pub struct SystemBootc;
 
+/// `bootc` with `args`, run in PID 1's mount namespace rather than the
+/// service's own.
+///
+/// `mauvelyd.service`'s sandboxing (`PrivateTmp`, `ProtectHome`) gives the
+/// agent a mount namespace of its own, and every `bootc upgrade` run in such a
+/// namespace leaves its storage bind mounts behind, doubled by propagation:
+/// 1, 3, 7, 15, 31 after five runs. Within an hour of one-minute check-ins the
+/// namespace reached the kernel's `fs.mount-max` and every upgrade failed with
+/// "No space left on device" (Timur's VM, 2026-10-21). Run in the host's
+/// namespace, bootc cleans up after itself, as it does from a shell. The rest
+/// of the agent stays sandboxed.
+pub(crate) fn bootc_argv(args: &[&str]) -> Vec<String> {
+    let mut v = argv(&["nsenter", "--mount=/proc/1/ns/mnt", "--", "bootc"]);
+    v.extend(args.iter().map(|a| (*a).to_owned()));
+    v
+}
+
 impl Bootc for SystemBootc {
     fn status(&self) -> Result<Status, Error> {
-        parse_status(&run(&argv(&["bootc", "status", "--json"]), None)?)
+        parse_status(&run(&bootc_argv(&["status", "--json"]), None)?)
     }
 
     fn switch(&self, image: &str) -> Result<(), Error> {
@@ -71,12 +88,12 @@ pub(crate) fn switch_argv(image: &str) -> Result<Vec<String>, Error> {
     operand("image", image)?;
     // Without `--apply`, `bootc switch` stages and leaves the reboot to the
     // machine's own schedule.
-    Ok(argv(&["bootc", "switch", image]))
+    Ok(bootc_argv(&["switch", image]))
 }
 
 pub(crate) fn upgrade_argv() -> Vec<String> {
     // The same: no `--apply`, so it stages and never reboots.
-    argv(&["bootc", "upgrade"])
+    bootc_argv(&["upgrade"])
 }
 
 pub(crate) fn discard_staged_argv() -> Vec<String> {
@@ -154,10 +171,39 @@ mod tests {
     fn switch_never_applies() {
         assert_eq!(
             switch_argv("ghcr.io/mauvely/os:next").unwrap(),
-            ["bootc", "switch", "ghcr.io/mauvely/os:next"]
+            [
+                "nsenter",
+                "--mount=/proc/1/ns/mnt",
+                "--",
+                "bootc",
+                "switch",
+                "ghcr.io/mauvely/os:next"
+            ]
         );
         assert!(switch_argv("--apply").is_err());
-        assert_eq!(upgrade_argv(), ["bootc", "upgrade"]);
+        assert_eq!(
+            upgrade_argv(),
+            [
+                "nsenter",
+                "--mount=/proc/1/ns/mnt",
+                "--",
+                "bootc",
+                "upgrade"
+            ]
+        );
+        // Every bootc command leaves the service's mount namespace: run inside
+        // it, each upgrade doubles bootc's leftover mounts until mounts fail.
+        assert_eq!(
+            bootc_argv(&["status", "--json"]),
+            [
+                "nsenter",
+                "--mount=/proc/1/ns/mnt",
+                "--",
+                "bootc",
+                "status",
+                "--json"
+            ]
+        );
         assert_eq!(
             discard_staged_argv(),
             ["rpm-ostree", "cleanup", "--pending"]

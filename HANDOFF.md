@@ -1,5 +1,33 @@
 # Handoff
 
+## 2026-10-21, late: bootc leaks mounts inside the service's sandbox
+
+**Every `bootc` command now runs in PID 1's mount namespace**
+(`bootc::bootc_argv`: `nsenter --mount=/proc/1/ns/mnt -- bootc …`).
+
+- **What happened:** on Timur's VM, with one-minute check-ins, every
+  `bootc upgrade` began failing with "No space left on device" about an hour in.
+  No filesystem was full. The agent's mount namespace held 65,584 mounts:
+  32,768 of `/run/bootc/storage` and 32,767 of `/sysroot/ostree/bootc/storage`.
+  That hit `fs.mount-max` (100,000) on the next doubling.
+- **The cause:** `mauvelyd.service`'s `PrivateTmp`/`ProtectHome` give it a
+  private mount namespace. In any such namespace each `bootc upgrade` leaves
+  its storage bind mounts behind, and propagation doubles them: 1, 3, 7, 15,
+  31 after five runs (`systemd-run -p PrivateTmp=yes …`). Either option alone
+  does it. Unsandboxed it stays 0.
+- **The fix, proven on the VM:** with `nsenter --mount=/proc/1/ns/mnt` from
+  inside the same sandbox, it stayed 0 in the sandbox and on the host over
+  four upgrades, under SELinux enforcing (`unconfined_service_t`). The rest of
+  the agent stays sandboxed.
+- **Not changed:** `rpm-ostree` goes through rpm-ostreed over D-Bus and
+  mounts nothing in the agent's namespace.
+- **Worth reporting upstream to bootc:** a sandboxed caller leaks mounts
+  exponentially. tuned's `bootc loader-entries` call at boot, which hung
+  behind the agent and timed out, may be the same family.
+- **Until an image with this ships,** a machine whose agent has made about
+  fifteen `bootc upgrade` calls since its last restart can't upgrade. A reboot
+  or `systemctl restart mauvelyd` clears it.
+
 ## 2026-10-21, evening: sign-in as windows, "<App> is ready", failed apps in the check-in
 
 Four commits on `main` after `c6e1d21`: `6b29744` (failed list), `0da6ad1`
