@@ -18,7 +18,7 @@ A Cargo workspace with two crates:
   (`main.rs`). The service unit is `dist/mauvelyd.service`.
 - `crates/mauvely-session`: a binary, run as the person by the user unit
   `dist/mauvely-session.service`. It tells them when a restart finishes an
-  update (brief 22, U2); the SSO broker (S2) joins it later.
+  update (brief 22, U2), and is the sign-in broker (S2): `docs/broker.md`.
 
 `mauvelyd`'s modules:
 
@@ -31,6 +31,17 @@ A Cargo workspace with two crates:
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
 | `state`, `facts`, `schedule` | Files on disk, hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
+
+`mauvely-session`'s modules:
+
+| Module | Holds |
+|---|---|
+| `staged` | Whether an update is staged, and saying so once |
+| `broker::caller` | Who may ask the broker for what, pure |
+| `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info` |
+| `broker::wire`, `broker::socket` | Suite's framing; the socket and a thread per caller |
+| `broker::accounts`, `broker::seal` | website-main's device link and mints; the `os` session at rest |
+| `broker::testing` | Test doubles and a `tiny_http` fake server, test builds only |
 
 ## Rules
 
@@ -46,16 +57,23 @@ A Cargo workspace with two crates:
 - **PAM and NSS modules never touch the network** (milestone 2). They talk to
   the daemon over its socket, and they fail fast and closed when it does not
   answer.
-- **Never log a device key or an enrolment token.** The seed travels to
-  `systemd-creds` over stdin, never as an argument or a file.
+- **Never log a device key, an enrolment token or a session token.** The
+  seed and the `os` session travel to `systemd-creds` over stdin, never as an
+  argument or a file. The broker's session types print `<redacted>` for
+  `{:?}`.
 - **`cargo test` must pass** without root, a TPM, flatpak or network.
   `cargo clippy --all-targets -- -D warnings` stays clean; code is
   `cargo fmt`-formatted.
 - **No async runtime.** It is one loop, and it blocks. `mauvely-session` uses
   zbus's blocking API, which runs zbus's own executor thread; no tokio.
 - **`mauvely-session` runs as the person, never as root.** It changes nothing
-  on the machine but its own file in `$XDG_STATE_HOME/mauvely/`, and asks
-  logind for a reboot only when the person clicks Restart.
+  on the machine but its own files in `$XDG_STATE_HOME/mauvely/` and its
+  socket in `$XDG_RUNTIME_DIR/mauvely/`, and asks logind for a reboot only
+  when the person clicks Restart.
+- **`broker::caller` is the broker's security boundary.** Change it with its
+  tests. `BROKERABLE` is never narrower than website-main's `KNOWN_CLIENTS`
+  without `suite` and `os`, and `BROWSERS` names the same browsers as
+  mauvelyd's `reconcile::BROWSERS`.
 - `CARGO_BUILD_JOBS=24` at most here, 8 on CI.
 
 ## Handing off

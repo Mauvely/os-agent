@@ -8,7 +8,9 @@
 
 `mauvely-session` runs in each graphical session, as the person. When an
 update is staged it shows "Restart to finish updating" once, with a Restart
-button.
+button. It is also the sign-in broker: it links the computer to the person's
+Mauvely account once, then signs the Mauvely apps and the browsers in from
+that (`docs/broker.md`).
 
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
 talk only to the daemon over a local socket, never to the network.
@@ -85,7 +87,9 @@ reconciles against the answer:
    one is discarded first, with `rpm-ostree cleanup --pending`. The agent
    never reboots;
 6. at most every 6 hours, system Flatpaks are updated, and runtimes no system
-   app uses are removed.
+   app uses are removed;
+7. each system Firefox and Chromium is granted the sign-in broker's socket,
+   once (`flatpak override --system --filesystem=xdg-run/mauvely:ro`).
 
 A user's own `--user` installs are never listed or touched. A failure in
 one step is reported at the next check-in and does not stop the others.
