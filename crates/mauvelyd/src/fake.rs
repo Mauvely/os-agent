@@ -190,11 +190,23 @@ impl FakeBootc {
                 booted_image: Some(image.into()),
                 booted_digest: Some("sha256:0000".into()),
                 staged_image: None,
+                staged_digest: None,
             })),
             switches: RefCell::default(),
             upgrades: RefCell::default(),
             discards: RefCell::default(),
         }
+    }
+
+    /// `image` booted, and the same image at the same digest staged over it:
+    /// a kernel-argument change, as mauvely-seal stages on the first boot.
+    pub fn kargs_staged(image: &str) -> Self {
+        let bc = FakeBootc::booted(image);
+        if let Some(s) = bc.status.borrow_mut().as_mut() {
+            s.staged_image = Some(image.into());
+            s.staged_digest = s.booted_digest.clone();
+        }
+        bc
     }
 
     /// `bootc status` fails.
@@ -234,6 +246,7 @@ impl Bootc for FakeBootc {
         self.switches.borrow_mut().push(image.into());
         if let Some(s) = self.status.borrow_mut().as_mut() {
             s.staged_image = Some(image.into());
+            s.staged_digest = Some("sha256:ffff".into());
         }
         Ok(())
     }
@@ -247,6 +260,7 @@ impl Bootc for FakeBootc {
         *self.discards.borrow_mut() += 1;
         if let Some(s) = self.status.borrow_mut().as_mut() {
             s.staged_image = None;
+            s.staged_digest = None;
         }
         Ok(())
     }

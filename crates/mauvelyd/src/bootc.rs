@@ -12,6 +12,26 @@ pub struct Status {
     pub booted_image: Option<String>,
     pub booted_digest: Option<String>,
     pub staged_image: Option<String>,
+    pub staged_digest: Option<String>,
+}
+
+impl Status {
+    /// The staged image when it is an update. `None` when nothing is staged,
+    /// or when what is staged is the booted image at the booted digest: a
+    /// kernel-argument change, which is what mauvely-seal's `rpm-ostree kargs`
+    /// stages on the first boot. Read as an update, that parked every upgrade
+    /// behind it until a clean reboot, and a machine only ever powered off
+    /// hard never updated.
+    pub fn staged_update(&self) -> Option<&str> {
+        let kargs_only = self.staged_digest.is_some()
+            && self.staged_digest == self.booted_digest
+            && self.staged_image == self.booted_image;
+        if kargs_only {
+            None
+        } else {
+            self.staged_image.as_deref()
+        }
+    }
 }
 
 pub trait Bootc {
@@ -76,6 +96,7 @@ pub(crate) fn parse_status(stdout: &[u8]) -> Result<Status, Error> {
         booted_image: s("/status/booted/image/image/image"),
         booted_digest: s("/status/booted/image/imageDigest"),
         staged_image: s("/status/staged/image/image/image"),
+        staged_digest: s("/status/staged/image/imageDigest"),
     })
 }
 
@@ -141,5 +162,59 @@ mod tests {
             discard_staged_argv(),
             ["rpm-ostree", "cleanup", "--pending"]
         );
+    }
+
+    // `bootc status --format=json` from bootc 1.16.13 on the first Proxmox
+    // install (2026-10-21), on `stable`, in the three states that matter.
+    const REAL_CLEAN: &str = include_str!("../fixtures/bootc/clean.json");
+    const REAL_OTHER_STAGED: &str = include_str!("../fixtures/bootc/other-staged.json");
+    const REAL_KARGS_STAGED: &str = include_str!("../fixtures/bootc/kargs-staged.json");
+
+    #[test]
+    fn real_status_with_nothing_staged() {
+        let s = parse_status(REAL_CLEAN.as_bytes()).unwrap();
+        assert_eq!(s.booted_image.as_deref(), Some("ghcr.io/mauvely/os:stable"));
+        assert!(
+            s.booted_digest
+                .as_deref()
+                .unwrap()
+                .starts_with("sha256:1862d543")
+        );
+        assert_eq!(s.staged_image, None);
+        assert_eq!(s.staged_update(), None);
+    }
+
+    #[test]
+    fn real_status_with_another_image_staged() {
+        let s = parse_status(REAL_OTHER_STAGED.as_bytes()).unwrap();
+        assert_eq!(s.staged_image.as_deref(), Some("ghcr.io/mauvely/os:next"));
+        assert!(
+            s.staged_digest
+                .as_deref()
+                .unwrap()
+                .starts_with("sha256:0e39a3a5")
+        );
+        assert_eq!(s.staged_update(), Some("ghcr.io/mauvely/os:next"));
+    }
+
+    #[test]
+    fn a_kernel_argument_change_is_not_an_update() {
+        // `rpm-ostree kargs --append`, as mauvely-seal runs it: the booted
+        // image again, at the booted digest.
+        let s = parse_status(REAL_KARGS_STAGED.as_bytes()).unwrap();
+        assert_eq!(s.staged_image, s.booted_image);
+        assert_eq!(s.staged_digest, s.booted_digest);
+        assert_eq!(s.staged_update(), None);
+    }
+
+    #[test]
+    fn a_newer_build_of_the_booted_image_is_an_update() {
+        let s = Status {
+            booted_image: Some("ghcr.io/mauvely/os:stable".into()),
+            booted_digest: Some("sha256:1111".into()),
+            staged_image: Some("ghcr.io/mauvely/os:stable".into()),
+            staged_digest: Some("sha256:2222".into()),
+        };
+        assert_eq!(s.staged_update(), Some("ghcr.io/mauvely/os:stable"));
     }
 }

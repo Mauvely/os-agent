@@ -94,6 +94,12 @@ mod tests {
             {"checksum":"aa","staged":true,"booted":false},
             {"checksum":"aa","staged":false,"booted":true}]}"#;
         assert_eq!(staged(same).unwrap(), None);
+
+        // `rpm-ostree status --json` on the first Proxmox install
+        // (2026-10-21) after `rpm-ostree kargs --append`, the image manifests
+        // trimmed.
+        let real = include_bytes!("../fixtures/status-kargs-staged-real.json");
+        assert_eq!(staged(real).unwrap(), None);
     }
 
     #[test]

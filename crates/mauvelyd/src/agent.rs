@@ -174,7 +174,7 @@ impl<'a> Agent<'a> {
         let body = CheckinRequest {
             booted_image: image.booted_image.as_deref(),
             booted_digest: image.booted_digest.as_deref(),
-            staged_image: image.staged_image.as_deref(),
+            staged_image: image.staged_update(),
             remotes: inventory.remotes.iter().map(|r| r.name.as_str()).collect(),
             flatpaks: inventory
                 .apps

@@ -1,7 +1,11 @@
 [Unit]
 Description=Mauvely device agent
 Documentation=https://github.com/Mauvely/os-agent
-After=network-online.target
+# tuned sets kernel arguments through `bootc loader-entries` while it starts,
+# which waits for the sysroot lock. An image switch started first holds it for
+# over a minute, tuned's start times out, and power profiles are gone for that
+# boot (seen on the first Proxmox install). Started after it, the agent waits.
+After=network-online.target tuned.service
 Wants=network-online.target
 # Unprovisioned machines (no installer run) have nothing to talk to.
 ConditionPathExists=/etc/mauvely/server

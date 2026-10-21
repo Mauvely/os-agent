@@ -157,8 +157,8 @@ pub fn reconcile(
         let want = want.reference.as_str();
         match &inventory.image {
             None => errors.push("image: bootc status is unavailable".into()),
-            Some(s) if s.staged_image.as_deref() == Some(want) => {}
-            Some(s) if s.booted_image.as_deref() == Some(want) && s.staged_image.is_none() => {
+            Some(s) if s.staged_update() == Some(want) => {}
+            Some(s) if s.booted_image.as_deref() == Some(want) && s.staged_update().is_none() => {
                 if let Err(e) = bootc.upgrade() {
                     errors.push(format!("bootc upgrade {want}: {e}"));
                 }
@@ -174,7 +174,7 @@ pub fn reconcile(
                 }
                 Err(e) => errors.push(format!(
                     "discard staged {}: {e}",
-                    s.staged_image.as_deref().unwrap_or_default()
+                    s.staged_update().unwrap_or_default()
                 )),
             },
             Some(_) => {
@@ -395,6 +395,27 @@ mod tests {
         assert!(!fp.system_has("com.example.Game"));
         assert!(!managed.has_app("org.broken.App", "stable"));
         assert_eq!(bc.switches(), ["img:next"]);
+    }
+
+    #[test]
+    fn a_kernel_argument_change_does_not_hold_back_the_upgrade() {
+        // mauvely-seal stages the booted image again with new kernel
+        // arguments. Read as an update, it parked every upgrade until a clean
+        // reboot.
+        let fp = FakeFlatpak::default();
+        let mut managed = Managed::default();
+        let desired = Desired {
+            image: Some(DesiredImage {
+                reference: "img:stable".into(),
+            }),
+            ..Desired::default()
+        };
+        let bc = FakeBootc::kargs_staged("img:stable");
+        let r = run(&desired, &fp, &bc, &mut managed);
+        assert!(r.ok);
+        assert_eq!(bc.upgrades(), 1);
+        assert_eq!(bc.discards(), 0, "the kernel-argument change is kept");
+        assert!(bc.switches().is_empty());
     }
 
     #[test]

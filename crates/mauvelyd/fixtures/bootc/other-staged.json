@@ -1,0 +1,92 @@
+{
+  "apiVersion": "org.containers.bootc/v1",
+  "kind": "BootcHost",
+  "metadata": {
+    "name": "host"
+  },
+  "spec": {
+    "bootOrder": "default",
+    "image": {
+      "image": "ghcr.io/mauvely/os:next",
+      "transport": "registry"
+    }
+  },
+  "status": {
+    "booted": {
+      "cachedUpdate": null,
+      "composefs": null,
+      "downloadOnly": false,
+      "image": {
+        "architecture": "amd64",
+        "image": {
+          "image": "ghcr.io/mauvely/os:stable",
+          "transport": "registry"
+        },
+        "imageDigest": "sha256:1862d54325d73d12ac0f8362a8610183275c64e2c9202203ae5d0a7c6aad0c1e",
+        "timestamp": "2026-10-14T13:33:21.615658681Z",
+        "version": "44.20261013.0"
+      },
+      "incompatible": false,
+      "ostree": {
+        "checksum": "011e4cf4296dbfde198ca5f1348409a6b771f1da0b34cb77d128a1973ac7a070",
+        "deploySerial": 2,
+        "stateroot": "default"
+      },
+      "pinned": false,
+      "softRebootCapable": true,
+      "store": "ostreeContainer"
+    },
+    "readOnly": false,
+    "rollback": {
+      "cachedUpdate": null,
+      "composefs": null,
+      "downloadOnly": false,
+      "image": {
+        "architecture": "amd64",
+        "image": {
+          "image": "ghcr.io/mauvely/os:stable",
+          "transport": "registry"
+        },
+        "imageDigest": "sha256:1862d54325d73d12ac0f8362a8610183275c64e2c9202203ae5d0a7c6aad0c1e",
+        "timestamp": "2026-10-14T13:33:21.615658681Z",
+        "version": "44.20261013.0"
+      },
+      "incompatible": false,
+      "ostree": {
+        "checksum": "011e4cf4296dbfde198ca5f1348409a6b771f1da0b34cb77d128a1973ac7a070",
+        "deploySerial": 0,
+        "stateroot": "default"
+      },
+      "pinned": false,
+      "softRebootCapable": false,
+      "store": "ostreeContainer"
+    },
+    "rollbackQueued": false,
+    "staged": {
+      "cachedUpdate": null,
+      "composefs": null,
+      "downloadOnly": false,
+      "image": {
+        "architecture": "amd64",
+        "image": {
+          "image": "ghcr.io/mauvely/os:next",
+          "transport": "registry"
+        },
+        "imageDigest": "sha256:0e39a3a55495f0ac7390f9e2a0c6c1c8cde6c377672b87abdc3c8d57c6c7c616",
+        "timestamp": "2026-10-19T09:57:46.971820792Z",
+        "version": "44.20261019.0"
+      },
+      "incompatible": false,
+      "ostree": {
+        "checksum": "5e10848b1031fa289e5c230c9645458d2941b4793a2a216bcd19575504e005f6",
+        "deploySerial": 2,
+        "stateroot": "default"
+      },
+      "pinned": false,
+      "softRebootCapable": false,
+      "store": "ostreeContainer"
+    },
+    "type": "bootcHost",
+    "usrOverlay": null
+  }
+}

@@ -1,5 +1,39 @@
 # Handoff
 
+## 2026-10-21: first contact with a real install (Timur's Proxmox VM)
+
+What `mauvely-01` (enrolled on production, org `suez`) showed, and what changed:
+
+- **A kernel-argument change no longer holds back updates.** mauvely-seal's
+  `rpm-ostree kargs` stages the booted image again, at the booted digest.
+  `reconcile` compared image *names*, read that as "the wanted image is
+  staged" and never upgraded until a clean reboot; a machine only ever
+  powered off hard never updated. `bootc::Status::staged_update()` now
+  ignores a staged deployment of the booted image at the booted digest, and
+  the check-in reports `staged_image` through it too, so the console does not
+  say "restart pending" for it. Fixtures in `crates/mauvelyd/fixtures/bootc/`
+  are real `bootc status --format=json` output from the VM, in all three
+  states; `crates/mauvely-session/fixtures/status-kargs-staged-real.json` is
+  real `rpm-ostree status --json` (image manifests trimmed).
+- **`mauvelyd.service` starts after `tuned.service`.** tuned sets kernel
+  arguments through `bootc loader-entries` while it starts; behind the
+  agent's `bootc switch` (over a minute) it timed out, dumped core, and took
+  `tuned-ppd` (power profiles) down for that boot, every boot.
+- **Not fixed here: `/boot` is too small for two kernels.** bootc's 510 MB
+  `/boot` cannot hold Kinoite's 238 MB initramfs twice, so the VM's update to
+  `next` failed at shutdown ("Installing kernel: regfile copy: No space left
+  on device") and was staged again every boot. os-image's slim initramfs is
+  the fix. Until it ships, the agent re-stages at every boot and
+  mauvely-session would announce a restart that never finishes.
+- **Not verified on the VM yet:** the upgrade with a kernel-argument change
+  staged, against a registry that has a newer build. `bootc upgrade` takes
+  its kernel arguments from the booted deployment, so the seal's change is
+  dropped from that update and the seal stages it again on the next boot.
+- **Worth doing next:** report a staged update that did not survive the
+  reboot (`ostree-finalize-staged` failed, or the booted digest is not the
+  one staged last time) in `last_apply.errors`, and stop mauvely-session
+  announcing it again.
+
 2026-10-16. Brief 22's U2 is built: `mauvelyd` updates Flatpaks and discards
 an unwanted staged image, and the new per-user `mauvely-session` says when a
 restart finishes an update. `cargo test` passes (47: mauvelyd 43 + 1 + 1, the
