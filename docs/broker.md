@@ -15,26 +15,37 @@ Once per local user, until M2's login fills the same store.
 1. At each graphical login with no `os` session, a notification: "Sign in to
    Mauvely", one action, "Sign in". It stays until dismissed.
 2. "Sign in" starts a device link as client `os`
-   (`POST /api/auth/device/start`) and opens its page in the default browser,
-   through the OpenURI portal, or `xdg-open` when there is none. Only a page
-   on the accounts origin is opened.
+   (`POST /api/auth/device/start`). The notification becomes "Enter this
+   code to sign in", with the code as its body, and the link page opens in
+   the default browser, through the OpenURI portal, or `xdg-open` when there
+   is none. **The page opens without the code**: whatever opens it puts the
+   address in an argv that every local user can read under `/proc`, and with
+   the code any of them could approve the link for their own account. Only a
+   page on the accounts origin is opened.
 3. The broker polls `POST /api/auth/device/token` until the link is approved,
    declined or expired (ten minutes).
-4. The `os` session is sealed with `systemd-creds --user encrypt`, stdin to
+4. The notification becomes "Signed in to Mauvely as <email>", so a link to
+   an account that is not the person's is seen at once.
+5. The `os` session is sealed with `systemd-creds --user encrypt`, stdin to
    stdout, into `$XDG_STATE_HOME/mauvely/os.cred` (mode `0600`, in a `0700`
-   directory). Its expiry and address are sealed with it.
+   directory). Its expiry, address and accounts origin are sealed with it.
 
-A link that cannot start, or a browser that cannot open, puts the offer back.
-A declined or expired one does not, until the next login.
+A link that cannot start, or a code or browser that cannot be shown, puts the
+offer back. A declined or expired one takes the code away, and is offered
+again at the next login.
 
 The `os` session ends, and the offer comes back, when a mint answers `401`
-(revoked, signed out, expired on the server) or when its own expiry passes.
+(revoked, signed out, expired on the server), when its own expiry passes, or
+when it was sealed for another accounts origin than this computer's now.
 Everything minted from it is forgotten with it. A file that does not unseal is
 kept, in case that passes, and the offer is shown; a new link replaces it.
 
 ### The accounts origin
 
-From `/etc/mauvely/server`, which the installer writes:
+From `/etc/mauvely/server`, which the installer writes. `MAUVELY_CONFIG_DIR`
+moves `/etc/mauvely` in a debug build only: in a release build the
+environment, which `~/.config/environment.d/` sets, would choose where the
+`os` token goes.
 
 | `/etc/mauvely/server` | Accounts origin |
 |---|---|
@@ -55,6 +66,9 @@ the user's uid and name and the machine id (`vl_method_encrypt` in systemd's
 `src/creds/creds.c`, v258). `--with-key` cannot change that, and
 `--with-key=tpm2` alone is refused in user scope, so none is passed.
 
+The same service decrypts it for any process of that uid. See the threat
+model.
+
 ## The socket
 
 `$XDG_RUNTIME_DIR/mauvely/broker`: the directory `0700`, the socket `0600`,
@@ -62,9 +76,17 @@ both the person's. The directory is made once and never removed: a Flatpak
 granted `xdg-run/mauvely` bind-mounts it when it starts, and a directory made
 again would leave running apps holding the old one.
 
-One JSON object per line each way, then the socket closes. A caller has five
-seconds to send its line, of at most 4096 bytes. Sixteen callers are served
-at once; the seventeenth is told `busy`.
+The socket's device and inode are recorded when it is bound, and checked
+every two seconds and after every caller. When something else holds the name
+(an app granted the directory read-write can unlink it and listen there), the
+broker clears whatever is there, file or directory, and listens again. A
+listen that fails is tried again every two seconds.
+
+One JSON object per line each way, then the socket closes. A host process, or
+a caller that could not be identified, is answered `forbidden` at once,
+before it says anything. Others have five seconds to send a line of at most
+4096 bytes. Sixteen callers are served at once; the seventeenth is told
+`busy`.
 
 ### Requests
 
@@ -74,8 +96,8 @@ at once; the seventeenth is told `busy`.
 ```
 
 - `token`: an app session for `client`. `label` is optional, and becomes the
-  session's name in the Devices tab (control characters dropped, at most 120
-  characters).
+  session's name in the Devices tab: control characters dropped, trimmed,
+  at most 120 UTF-16 units, as the server counts.
 - `browser`: a browser session, for the extension to set as the
   `mauvely_session` cookie. Any `client` or `label` is ignored: the broker
   names it "Firefox on <hostname>" or "Chromium on <hostname>".
@@ -96,11 +118,11 @@ that it is not its own.
 
 | `reason` | Meaning | What the caller does |
 |---|---|---|
+| `forbidden` | This caller may not have it (below). A host or unidentified caller gets it before anything is read | Its own sign-in |
 | `unknown_op`, `version` | Not this protocol. The op is checked first, then `v` | Its own sign-in |
 | `too_large` | Over 4096 bytes | Its own sign-in |
 | `busy` | Sixteen callers already being served | Ask again shortly, or its own sign-in |
 | `unknown_client` | Not a client the server mints (`suite`, `os`, or unknown) | Its own sign-in |
-| `forbidden` | This caller may not have it (below) | Its own sign-in |
 | `signed_out` | This computer is not linked, or the link has ended | Its own sign-in |
 | `sso_required` | The organisation enforces single sign-on and this computer's link was not approved from one | The browser extension opens `start` in a tab, which signs the browser in through the organisation. An app does its own sign-in |
 | `app_not_allowed` | The organisation has turned that app off for the account | Show nothing; its own sign-in will be refused the same way |
@@ -122,17 +144,23 @@ The caller is the process at the other end of the socket:
 3. `/proc/<pid>` is opened as a directory, then the pidfd must still name that
    pid, so the directory is the caller's and not a newcomer's that took its
    pid.
-4. `root/.flatpak-info` is read through that directory: through the caller's
-   own root. No symlink, no FIFO, a regular file under 64 KiB.
+4. Through that directory, so through the caller's own root:
+   `root/.flatpak-info` is read (no symlink, no FIFO, a regular file under
+   64 KiB), and `root/app` is looked at, not followed if it is a symlink.
 5. The pidfd must still name that pid.
+6. On this side: the sandbox's `/app` must be the very directory its
+   `app-path` names, the same device and inode. For a system install, the
+   deploy file beside it (`<app-path>/../deploy`, a GVariant whose first
+   string is the origin remote) says which remote it came from.
 
 No `.flatpak-info` is a host process. Anything unreadable, gone or malformed
 is unidentified. Both are refused.
 
 | Caller | `token` for key K | `browser` |
 |---|---|---|
-| `com.mauvely.K`, `app-path` under `/var/lib/flatpak/app/com.mauvely.K/` | yes, K only | no |
-| `org.mozilla.firefox` or `org.chromium.Chromium`, `app-path` under `/var/lib/flatpak/app/<id>/` | no | yes |
+| `com.mauvely.K`, `app-path` under `/var/lib/flatpak/app/com.mauvely.K/`, `/app` that deploy, from the remote `mauvely` | yes, K only | no |
+| `org.mozilla.firefox` or `org.chromium.Chromium`, `app-path` under `/var/lib/flatpak/app/<id>/`, `/app` that deploy, from any remote | no | yes |
+| `com.mauvely.K` system-wide from another remote (Flathub, say, which a wheel user can install from) | no | no |
 | The same ids from a `--user` install, or any other path | no | no |
 | Any other app id, lookalikes included (`com.mauvely.compose.Devel`, `org.mozilla.Firefox`) | no | no |
 | A host process, or one not identified | no | no |
@@ -141,7 +169,9 @@ K is one of `assist`, `cli`, `compose`, `mail`, `office`, `relay`, `review`,
 `snap`: website-main's `KNOWN_CLIENTS` without `suite` and `os`. A key outside
 it is `unknown_client` whoever asks. `app-path` must be
 `/var/lib/flatpak/app/<id>/` followed by at least one component, none of them
-empty, `.` or `..`.
+empty, `.` or `..`. The remote is the agent's, `mauvely`
+(website-devices' `worker/lib/remotes.ts`); the browsers' is not checked,
+since an organisation may mirror Flathub under another name.
 
 `.flatpak-info` is read strictly: anything GLib would not load, and a group or
 key given twice, is unidentified. Values are unescaped only for the two keys
@@ -152,8 +182,9 @@ with whether it was minted or cached. No token is ever logged.
 
 ### Reaching the socket
 
-- **Mauvely apps:** `--filesystem=xdg-run/mauvely:ro` in their finish-args
-  (S3). `:ro` is enough to connect.
+- **Mauvely apps:** exactly `--filesystem=xdg-run/mauvely:ro` in their
+  finish-args (S3). `:ro` is enough to connect, and without it the app can
+  replace the socket.
 - **Browsers:** `mauvelyd` runs
   `flatpak override --system --filesystem=xdg-run/mauvely:ro <id>` once for
   each system-installed Firefox and Chromium, whoever installed it, and again
@@ -175,8 +206,9 @@ Each app key and each browser has one cached session, in memory only.
 - **Fresh** until a tenth of its life, or five minutes, before `expiresAt`,
   whichever is sooner. A stale one is minted again without asking.
 - **Checked** with `GET /api/auth/me` before each reuse. A session the server
-  no longer takes (signed out in the page, revoked in the Devices tab) is
-  minted again. When the server cannot say, the cached one is answered.
+  no longer takes (`user: null`, `401`, or `403`, as for an app the
+  organisation has turned off) is minted again, and the mint says why when it
+  fails. When the server cannot say, the cached one is answered.
 - Two callers asking for the same key at once get one mint.
 
 So a caller whose token expired or was refused asks again, and gets a fresh
@@ -188,10 +220,22 @@ the server's rate limits answer instead.
 
 ## Threat model, as built
 
+**The boundary is the person's account.** Any process running as the person
+can unseal `os.cred` with `systemd-creds --user decrypt`: the varlink service
+decrypts a user-scoped credential for any process of that uid. A review
+round-tripped it as a plain same-uid process on systemd 262, and so did the
+2026-10-21 end-to-end run. Nothing the broker checks about a host process
+gives more than that: a host process refused at the socket can take the `os`
+session itself.
+
 **What each check stops:**
 
 - **The `0700` directory and `0600` socket** stop other local users. Their
   processes are refused by uid as well.
+- **The page opening without its code** stops another local user, who can
+  read every argv under `/proc`, approving this computer's link for their own
+  account. "Signed in to Mauvely as <email>" shows the account linked, should
+  anything else go wrong.
 - **`.flatpak-info` read through the caller's root** stops a sandboxed app
   claiming another app's identity. Flatpak writes that file, mounts it
   read-only, and its seccomp filter refuses `unshare` of a user or mount
@@ -203,8 +247,21 @@ the server's rate limits answer instead.
 - **The system path** stops a `--user` install, which presents the same app id
   from a directory the person can write. Only root writes
   `/var/lib/flatpak/app/`, and the agent installs only there.
+- **The sandbox's `/app` compared on disk** stops a `.flatpak-info` whose
+  `app-path` names a system install the sandbox is not running. A sloppy
+  forgery fails here (shown with `bwrap`, 2026-10-21); a careful one also
+  bind-mounts that deploy.
+- **The deploy's remote** stops a `com.mauvely.*` app installed system-wide
+  from anywhere but the Mauvely remote.
 - **The app id and the key** stop a Mauvely app asking for a sibling's session,
   and anything but a browser asking for a browser session.
+- **The socket's identity, checked every two seconds and after every caller,**
+  stops an app with the directory read-write answering for the broker for
+  longer than that. In the 2026-10-21 run a squatter answered for about two
+  seconds, then the broker had the name back.
+- **The origin sealed with the session** stops a changed
+  `/etc/mauvely/server`, or a moved configuration directory, sending the
+  90-day token anywhere but where it was issued.
 - **The accounts origin** stops the `os` token going anywhere but the accounts
   service this computer is enrolled with. No redirect is followed; plain HTTP
   only on loopback and qemu's host address.
@@ -214,18 +271,19 @@ the server's rate limits answer instead.
 
 **What it cannot stop:**
 
-- **A host process running as the person.** It can forge `.flatpak-info` in a
-  user namespace of its own (shown with `bwrap` against the real broker,
-  2026-10-21), run a command inside a real sandbox
-  (`flatpak run --command=… org.mozilla.firefox`), read `mauvely-session`'s
-  memory, or ask `systemd-creds --user decrypt` for `os.cred` itself. Refusing
-  host processes is attribution and a speed bump, not a wall, as Suite's
-  broker says of its peer check. The person's own account is the trust
-  boundary.
+- **A host process running as the person.** Beyond unsealing `os.cred`, it can
+  forge `.flatpak-info` in a user namespace of its own, bind-mount a real
+  deploy at `/app`, run a command inside a real sandbox
+  (`flatpak run --command=… org.mozilla.firefox`), or read
+  `mauvely-session`'s memory. Refusing host processes is attribution and a
+  speed bump, as Suite's broker says of its peer check.
 - **A sandbox that can become a host process.** An app allowed to talk to
   `org.freedesktop.Flatpak` (`flatpak-spawn --host`) is one. So, by the next
   login, is an app that can write the person's home (`~/.config/autostart`):
   Flathub's Chromium has `--filesystem=home`.
+- **A squatter between checks.** An app granted `xdg-run/mauvely` read-write
+  answers callers for up to two seconds at a time. Only `:ro` stops it;
+  a directory the person cannot write would stop it for good (HANDOFF).
 - **Anything inside a browser's sandbox is that browser** (S0, note 5). The
   native host is a child of the browser and is answered as the browser. So is
   any other native-messaging host registered for it, which anything that can
@@ -234,14 +292,16 @@ the server's rate limits answer instead.
 - **A caller allowed to ask can make the broker mint** up to the server's
   limits, for example by signing each session out and asking again, which
   uses up the hour's browser sessions.
-- **Denial of service by a same-uid process:** sixteen idle connections hold
-  every place for five seconds at a time.
+- **Denial of service by a same-uid process:** sixteen idle connections from
+  an identified sandbox hold every place for five seconds at a time.
 
 ## Keeping in step
 
 - `caller::BROKERABLE` against `KNOWN_CLIENTS` in website-main's
   `worker/routes/device.ts`. Never narrower: a refusal here only shows as an
   app opening a browser, which looks like the fallback working.
-- `caller::BROWSERS` against mauvelyd's `reconcile::BROWSERS`.
+- `caller::BROWSERS` against mauvelyd's `reconcile::BROWSERS`;
+  `the_browsers_match_the_agents` fails when they differ.
+- `caller::MAUVELY_REMOTE` against the remote name website-devices sends.
 - The framing against Suite's `src/core/authbroker.cpp`. A new field is fine;
   a renamed one is not.

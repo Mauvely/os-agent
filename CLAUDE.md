@@ -38,7 +38,7 @@ A Cargo workspace with two crates:
 |---|---|
 | `staged` | Whether an update is staged, and saying so once |
 | `broker::caller` | Who may ask the broker for what, pure |
-| `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info` |
+| `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info`, its `/app` on disk, the deploy's remote |
 | `broker::wire`, `broker::socket` | Suite's framing; the socket and a thread per caller |
 | `broker::accounts`, `broker::seal` | website-main's device link and mints; the `os` session at rest |
 | `broker::testing` | Test doubles and a `tiny_http` fake server, test builds only |

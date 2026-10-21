@@ -1,5 +1,130 @@
 # Handoff
 
+## 2026-10-21, later: the S2 review's fixes
+
+An adversarial review of S2 (`669f0e0..aab49ba`) found the caller check held,
+and five things that did not. Each is fixed test-first on `main`, and each
+guard was sabotaged once to see a test fail (the directory-owner check is
+still the one that cannot be: only root can make a directory we can write but
+do not own). `cargo test` passes (mauvelyd 50 + 1 + 1, mauvely-session 69),
+clippy is clean.
+
+1. **Another local user could link this computer to their own account.** The
+   page opened as `…/link?code=<code>`, so the code sat in `xdg-open`'s or the
+   browser's argv, readable by every uid under `/proc`.
+   - Now: `verificationUri` opens without the code (refused if it carries
+     it), the notification becomes "Enter this code to sign in" with the code
+     as its body, and on success "Signed in to Mauvely as <email>". A
+     declined or expired link takes the code away.
+   - Tests: `start_answers`, `linking_opens_the_page_then_seals_the_session`,
+     `a_declined_or_expired_link_leaves_it_signed_out`.
+2. **An app granted `xdg-run/mauvely` read-write could answer for the
+   broker.** It could unlink the socket and listen in its place; a directory
+   in its place stopped the broker for the whole login.
+   - Now: the socket's (dev, ino) is recorded after bind and checked every
+     2 s and after every caller; on a change the broker clears whatever is
+     there (file or directory) and listens again. A failed listen is tried
+     again every 2 s instead of turning the broker off.
+   - Tests: `a_squatter_is_cleared_away`, `a_failed_listen_is_tried_again`.
+     In the end-to-end run a real squatter answered `tok_mallory` for about
+     2 s, then the broker had the name back.
+   - **S3's finish-args must be exactly `--filesystem=xdg-run/mauvely:ro`.**
+     Without `:ro` an app can squat between checks.
+   - **Later, the robust fix:** a directory the person cannot write. A
+     root-owned `/run/mauvely/<uid>/` (or similar), with `mauvelyd` binding
+     the socket there and handing the listening descriptor to the person's
+     `mauvely-session` (systemd socket activation per user, or `SCM_RIGHTS`
+     over the agent's socket). Then no app, `:ro` or not, can replace it.
+3. **The `os` token was not bound to its origin, and `MAUVELY_CONFIG_DIR`
+   was honoured.** A changed server, or that variable set through
+   `~/.config/environment.d/` by a home-writing sandbox, sent the 90-day token
+   elsewhere, in clear for the dev origins.
+   - Now: the origin is sealed with the session; a session for another origin
+     is forgotten and linking offered. `MAUVELY_CONFIG_DIR` works in debug
+     builds only.
+   - Tests: `a_session_linked_to_another_server_is_dropped` (a session sealed
+     before origins existed is dropped too),
+     `the_config_dir_moves_only_in_debug_builds`.
+4. **A 403 from `/api/auth/me` kept a cached session in service.**
+   - Now: 401 and 403 from `/me` are both "gone", so the re-mint answers,
+     for example, `app_not_allowed`.
+   - Tests: `alive_answers`,
+     `a_session_the_organisation_turned_off_is_not_answered_again`.
+5. **`$XDG_STATE_HOME/mauvely` could be `0755`,** made first by `staged`.
+   - Now: `private_dir` makes it, and any missing parent, `0700`, and
+     tightens it when it exists; `staged` and `seal` both use it.
+   - Tests: `a_private_dir_is_0700`, `stores_sealed_and_private`,
+     `says_it_once_per_staged_deployment`.
+
+**Hardening, also from the review:**
+- **A Mauvely app must come from the `mauvely` remote.** The deploy's origin
+  is read from `<app-path>/../deploy` (a GVariant `(ssasta{sv})`, first
+  string), only for a system install. The reader is tested on three real
+  deploy files from S0's installation, with 1- and 2-byte framing offsets,
+  and on broken ones. The browsers' remote is not checked, as an organisation
+  may mirror Flathub under another name.
+- **The sandbox's `/app` must be its `app-path` on disk,** the same device and
+  inode. It is looked at through `/proc/<pid>/root` inside the pid guard,
+  without following a symlink. A `bwrap` forgery naming a system deploy that
+  is not mounted is now refused.
+- **Host and unidentified callers are refused before they speak,** so they do
+  not hold one of the 16 places.
+- **Labels are cut at 120 UTF-16 units,** as JavaScript counts after
+  `trim()`. A longer one failed the whole mint with `invalid_field`.
+- **`caller::BROWSERS` is tested against mauvelyd's `reconcile::BROWSERS`,**
+  read from its source.
+- **`docs/broker.md`'s threat model leads with the real boundary:** any
+  process running as the person can unseal `os.cred` with
+  `systemd-creds --user decrypt`. Confirmed again in the end-to-end run.
+
+**End to end, again** (the same contained harness, a debug build so
+`MAUVELY_CONFIG_DIR` works):
+- the offer, the code in its own notification, `xdg-open` given
+  `http://127.0.0.1:8787/link` with no code, then "Signed in to Mauvely as
+  e2e@example.invalid";
+- the state directory `0700`;
+- `os.cred` unsealed by a plain same-uid `systemd-creds --user decrypt`;
+- a host caller refused at once;
+- the real user-installed Firefox refused as not a system install;
+- the `bwrap` forgery refused ("its /app is not its app-path");
+- a squatter answering for about 2 s, then the broker again;
+- `/etc/mauvely/server` changed: the sealed session forgotten and the offer
+  shown again;
+- no token in the log.
+
+It no longer shows a mint through the socket: nothing on this machine is a
+system install, so no real caller passes. The mint paths are in the unit
+tests, through `Broker::answer`.
+
+**Left:**
+- The root-owned socket directory above.
+- **Copy:** "Enter this code to sign in" with the code as the body was
+  chosen here. The link page calls it the "Code from the app".
+- **The confirmation's account:** "Signed in to Mauvely as <email>" shows the
+  claim's `user.email`. A link approved by another account is shown, not
+  undone, and the person cannot sign it out from their own Devices tab. The
+  only way back today is deleting `~/.local/state/mauvely/os.cred` and
+  logging in again. A "Sign out" action on that notification is the obvious
+  next step; not built, as nobody asked for it yet.
+
+## 2026-10-21: verified on `mauvely-01`
+
+Recorded from the parent session's check of Timur's VM, on production
+`next` `sha256:617bf164…`, which carries agent `669f0e0`:
+- os-image's slim initramfs (`1069b7b`) let the update finalise and boot,
+  unlocking from the TPM;
+- the move from `stable` to `next` went through GHCR under the signature
+  policy;
+- a staged `stable` over a booted `next` was discarded by
+  `rpm-ostree cleanup --pending` from inside `mauvelyd.service`'s hardening,
+  then `bootc upgrade` ran;
+- with only a kernel-argument change staged, the agent still ran
+  `bootc upgrade` and left the change staged;
+- starting after `tuned` kept `tuned` and `tuned-ppd` up.
+
+**Still unverified there:** Flatpak updates (the collection has no apps), and
+mauvely-session's notification (nobody was signed in to Plasma).
+
 ## 2026-10-21: brief 22's S2, the sign-in broker
 
 `mauvely-session` is now the sign-in broker, and `mauvelyd` grants the
@@ -157,7 +282,8 @@ No crate is new to `Cargo.lock`.
 ### For S3, the apps
 
 Do not edit the apps from here; this is the exact change each needs.
-- **finish-args:** `--filesystem=xdg-run/mauvely:ro`
+- **finish-args:** exactly `--filesystem=xdg-run/mauvely:ro`. Without `:ro`
+  the app can replace the socket (fixed later the same day, above).
 - **App id:** `com.mauvely.<APP_KEY>`, installed system-wide by the agent.
   A `--user` install, a developer's build included, is `forbidden`, and the
   app falls back to its own device link.
