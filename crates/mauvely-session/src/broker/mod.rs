@@ -31,8 +31,9 @@ use wire::{Granted, Reason, Request};
 
 use crate::Error;
 
-/// What the broker needs from the graphical session.
-/// The sign-in notifications are one: each replaces the one before.
+/// What the broker needs from the graphical session. The offer and the code
+/// are windows where `kdialog` can show them and notifications where it
+/// cannot; either way each replaces the one before.
 pub trait Desktop: Send + Sync {
     /// "Sign in to Mauvely", with a Sign in button.
     fn offer(&self) -> Result<(), Error>;

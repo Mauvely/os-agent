@@ -11,14 +11,15 @@
 //!   and opens it when asked (`ready`).
 
 mod broker;
+mod dialog;
 mod ready;
 mod staged;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use zbus::blocking::Connection;
@@ -27,6 +28,7 @@ use zbus::zvariant::{OwnedObjectPath, Value};
 use broker::accounts::{self, Accounts};
 use broker::seal::{Store, SystemdCreds};
 use broker::{Broker, RealClock, peer, socket};
+use dialog::{Answer, Dialogs};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -113,7 +115,20 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let shown = Arc::new(AtomicU32::new(0));
     let offered = Arc::new(AtomicU32::new(0));
     let clicks = notifications.receive_action_invoked()?;
-    let broker = start_broker(&session, &notifications, &offered, &state);
+    let (accepted, accepts) = mpsc::channel();
+    let broker = start_broker(&session, &notifications, &offered, &state, accepted);
+
+    // "Open the sign-in page" in the offer window: the same as the Sign in
+    // button of the notification the window stands in for.
+    let accepting = broker.clone();
+    std::thread::spawn(move || {
+        for () in accepts {
+            if let Some(broker) = &accepting {
+                let broker = Arc::clone(broker);
+                std::thread::spawn(move || broker.link());
+            }
+        }
+    });
 
     let restart_on_screen = Arc::clone(&shown);
     let offer_on_screen = Arc::clone(&offered);
@@ -247,6 +262,7 @@ fn start_broker(
     notifications: &NotificationsProxy<'static>,
     offered: &Arc<AtomicU32>,
     state: &Path,
+    accepted: mpsc::Sender<()>,
 ) -> Option<Arc<Broker>> {
     let started = (|| -> Result<Arc<Broker>, Error> {
         let path = config_dir().join("server");
@@ -255,9 +271,13 @@ fn start_broker(
         let origin = accounts::origin_for(&server)?;
         let runtime = absolute("XDG_RUNTIME_DIR").ok_or("XDG_RUNTIME_DIR is not set")?;
         let desktop = SessionDesktop {
-            notifications: notifications.clone(),
+            notice: Notice {
+                notifications: notifications.clone(),
+                offered: Arc::clone(offered),
+            },
             portal: OpenUriProxy::new(session).ok(),
-            offered: Arc::clone(offered),
+            dialogs: Dialogs::new(dialog::PROGRAM),
+            accepted,
         };
         let broker = Arc::new(Broker::new(
             Accounts::new(&origin),
@@ -281,16 +301,26 @@ fn start_broker(
         .ok()
 }
 
-/// The broker's way into the graphical session.
+/// The broker's way into the graphical session. The offer and the code are
+/// windows (`dialog`); where kdialog cannot show one, they are notifications.
 struct SessionDesktop {
-    notifications: NotificationsProxy<'static>,
+    notice: Notice,
     portal: Option<OpenUriProxy<'static>>,
+    dialogs: Dialogs,
+    /// Told when the person picks "Open the sign-in page".
+    accepted: mpsc::Sender<()>,
+}
+
+/// The sign-in notifications, which replace one another.
+#[derive(Clone)]
+struct Notice {
+    notifications: NotificationsProxy<'static>,
     /// The id of the sign-in notification on screen, for the click handler.
     /// The offer, the code and the confirmation replace one another.
     offered: Arc<AtomicU32>,
 }
 
-impl SessionDesktop {
+impl Notice {
     fn show(&self, summary: &str, body: &str, actions: &[&str], timeout: i32) -> Result<(), Error> {
         let id = self.notifications.notify(
             "Mauvely OS",
@@ -305,31 +335,80 @@ impl SessionDesktop {
         self.offered.store(id, Ordering::Relaxed);
         Ok(())
     }
-}
 
-impl broker::Desktop for SessionDesktop {
     /// Stays until dismissed, like the restart.
     fn offer(&self) -> Result<(), Error> {
         self.show("Sign in to Mauvely", "", &[SIGN_IN, "Sign in"], 0)
     }
 
     /// Stays while the person types it.
-    fn show_code(&self, code: &str) -> Result<(), Error> {
+    fn code(&self, code: &str) -> Result<(), Error> {
         self.show("Enter this code to sign in", code, &[], 0)
     }
+}
 
+impl broker::Desktop for SessionDesktop {
+    /// A window with two buttons. "Later" and closing it leave things as
+    /// dismissing the notification did.
+    fn offer(&self) -> Result<(), Error> {
+        let accepted = self.accepted.clone();
+        let notice = self.notice.clone();
+        let shown = self.dialogs.offer(move |answer| match answer {
+            Answer::Accepted => {
+                let _ = accepted.send(());
+            }
+            Answer::Dismissed => {}
+            // kdialog crashed with nothing shown.
+            Answer::Failed => {
+                eprintln!("mauvely-session: the sign-in window failed");
+                if let Err(e) = notice.offer() {
+                    eprintln!("mauvely-session: {e}");
+                }
+            }
+        });
+        match shown {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("mauvely-session: no sign-in window: {e}");
+                self.notice.offer()
+            }
+        }
+    }
+
+    /// A window that stays while the person types the code. The code goes to
+    /// kdialog on its standard input, never in an argv (`dialog`).
+    fn show_code(&self, code: &str) -> Result<(), Error> {
+        let (notice, text) = (self.notice.clone(), code.to_owned());
+        let shown = self.dialogs.show_code(code, move || {
+            eprintln!("mauvely-session: the code window failed");
+            if let Err(e) = notice.code(&text) {
+                eprintln!("mauvely-session: {e}");
+            }
+        });
+        match shown {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("mauvely-session: no code window: {e}");
+                self.notice.code(code)
+            }
+        }
+    }
+
+    /// The window goes, and the confirmation is a notification.
     fn signed_in(&self, email: &str) -> Result<(), Error> {
+        self.dialogs.close();
         let summary = match email {
             "" => "Signed in to Mauvely".to_owned(),
             email => format!("Signed in to Mauvely as {email}"),
         };
-        self.show(&summary, "", &[], -1)
+        self.notice.show(&summary, "", &[], -1)
     }
 
     fn withdraw(&self) {
-        let id = self.offered.load(Ordering::Relaxed);
+        self.dialogs.close();
+        let id = self.notice.offered.load(Ordering::Relaxed);
         if id != 0
-            && let Err(e) = self.notifications.close_notification(id)
+            && let Err(e) = self.notice.notifications.close_notification(id)
         {
             eprintln!("mauvely-session: could not take the code away: {e}");
         }
