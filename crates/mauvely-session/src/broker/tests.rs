@@ -80,13 +80,18 @@ fn linking_opens_the_page_then_seals_the_session() {
     ]);
     f.broker.link();
 
+    // The page opens without the code, which is shown to the person alone.
     assert_eq!(
         *f.desktop.opened.lock().unwrap(),
-        [format!("{}/link?code=ABCD-EFGH", f.base)]
+        [format!("{}/link", f.base)]
     );
+    assert_eq!(*f.desktop.codes.lock().unwrap(), ["ABCD-EFGH"]);
+    // And the account it was linked to is said.
+    assert_eq!(*f.desktop.signed_in.lock().unwrap(), ["ada@example.com"]);
     let stored = f.stored().unwrap();
     assert_eq!(stored.token, "tok_os_new");
     assert_eq!(stored.expires_at, NOW + 90 * 86_400);
+    assert_eq!(stored.origin, f.base);
     // The plain token is not in the file.
     let raw = std::fs::read(&f.store).unwrap();
     assert!(!raw.windows(10).any(|w| w == b"tok_os_new"));
@@ -126,7 +131,10 @@ fn a_declined_or_expired_link_leaves_it_signed_out() {
     f.broker.link();
     assert!(f.stored().is_none());
     refused(&f.ask(&compose(), COMPOSE), "signed_out");
-    // Declined: not offered again until the next login.
+    // Declined: the code is taken away, and not offered again until the
+    // next login.
+    assert_eq!(f.desktop.withdrawn.load(Ordering::SeqCst), 1);
+    assert!(f.desktop.signed_in.lock().unwrap().is_empty());
     f.broker.offer_if_wanted();
     assert_eq!(f.offers(), 1);
     assert_eq!(f.requests().len(), 3);
@@ -135,6 +143,7 @@ fn a_declined_or_expired_link_leaves_it_signed_out() {
     let mut f = Fixture::new(vec![start(30, 60), pending(), pending()]);
     f.broker.link();
     assert!(f.stored().is_none());
+    assert_eq!(f.desktop.withdrawn.load(Ordering::SeqCst), 1);
     assert_eq!(f.requests().len(), 3);
 }
 
@@ -150,7 +159,7 @@ fn a_link_that_cannot_start_is_offered_again() {
     // A link page on another origin is never opened.
     let evil = (
         200,
-        r#"{"deviceCode":"d","verificationUriComplete":"https://evil.example/link?code=A"}"#.into(),
+        r#"{"deviceCode":"d","userCode":"A","verificationUri":"https://evil.example/link"}"#.into(),
     );
     let mut f = Fixture::new(vec![evil]);
     f.broker.link();
@@ -297,12 +306,72 @@ fn a_401_ends_the_link_and_offers_it_again() {
 }
 
 #[test]
+fn a_session_linked_to_another_server_is_dropped() {
+    // /etc/mauvely/server changed, or the origin was pointed elsewhere: the
+    // 90-day token is not sent to the new one.
+    let elsewhere = OsSession {
+        token: OS_TOKEN.into(),
+        expires_at: NOW + 86_400,
+        email: "ada@example.com".into(),
+        origin: "https://mauvely.dev".into(),
+    };
+    let mut f = Fixture::with(vec![], Some(elsewhere));
+    assert!(!f.store.exists());
+    f.broker.offer_if_wanted();
+    assert_eq!(f.offers(), 1);
+    refused(&f.ask(&compose(), COMPOSE), "signed_out");
+    assert!(f.requests().is_empty());
+
+    // Sealed before origins were (no field): the same.
+    let mut f = Fixture::with(
+        vec![],
+        Some(OsSession {
+            origin: String::new(),
+            ..f_session()
+        }),
+    );
+    assert!(!f.store.exists());
+    refused(&f.ask(&compose(), COMPOSE), "signed_out");
+    assert!(f.requests().is_empty());
+}
+
+fn f_session() -> OsSession {
+    OsSession {
+        token: OS_TOKEN.into(),
+        expires_at: NOW + 86_400,
+        email: "ada@example.com".into(),
+        origin: "{BASE}".into(),
+    }
+}
+
+#[test]
+fn a_session_the_organisation_turned_off_is_not_answered_again() {
+    // /api/auth/me refuses an app the organisation withdrew; the mint then
+    // says why.
+    let mut f = Fixture::signed_in(vec![
+        (200, Fixture::minted("tok_1", 86_400)),
+        (403, error("app_not_allowed")),
+        (403, error("app_not_allowed")),
+    ]);
+    granted(&f.ask(&compose(), COMPOSE), "tok_1");
+    refused(&f.ask(&compose(), COMPOSE), "app_not_allowed");
+    let lines: Vec<String> = f.requests().iter().map(|r| r.line()).collect();
+    assert_eq!(
+        lines,
+        [
+            "POST /api/auth/apps/token",
+            "GET /api/auth/me",
+            "POST /api/auth/apps/token"
+        ]
+    );
+}
+
+#[test]
 fn an_expired_os_session_is_dropped() {
     // Expired before this login.
     let old = OsSession {
-        token: OS_TOKEN.into(),
         expires_at: NOW - 1,
-        email: "ada@example.com".into(),
+        ..f_session()
     };
     let mut f = Fixture::with(vec![], Some(old));
     assert!(!f.store.exists());
@@ -363,6 +432,8 @@ fn refused_callers_cost_nothing() {
         app: "org.mozilla.firefox".into(),
         app_path: "/home/ada/.local/share/flatpak/app/org.mozilla.firefox/x86_64/stable/c/files"
             .into(),
+        app_mounted: true,
+        origin: Some("flathub".into()),
     });
     for (caller, line, reason) in [
         (super::caller::Caller::Host, COMPOSE, "forbidden"),

@@ -18,10 +18,19 @@ use crate::Error;
 pub const NOW: u64 = 1_800_000_000;
 pub const OS_TOKEN: &str = "tok_os";
 
+/// A system install whose `/app` is its `app-path`, from the `mauvely`
+/// remote for ours and `flathub` for the rest.
 pub fn system_app(id: &str) -> Caller {
+    let origin = if id.starts_with("com.mauvely.") {
+        "mauvely"
+    } else {
+        "flathub"
+    };
     Caller::Sandbox(Sandbox {
         app: id.into(),
         app_path: format!("/var/lib/flatpak/app/{id}/x86_64/stable/c0ffee/files"),
+        app_mounted: true,
+        origin: Some(origin.into()),
     })
 }
 
@@ -36,6 +45,9 @@ pub fn firefox() -> Caller {
 #[derive(Default)]
 pub struct FakeDesktop {
     pub offers: AtomicUsize,
+    pub codes: Mutex<Vec<String>>,
+    pub signed_in: Mutex<Vec<String>>,
+    pub withdrawn: AtomicUsize,
     pub opened: Mutex<Vec<String>>,
     pub open_fails: AtomicBool,
 }
@@ -44,6 +56,20 @@ impl Desktop for Arc<FakeDesktop> {
     fn offer(&self) -> Result<(), Error> {
         self.offers.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    fn show_code(&self, code: &str) -> Result<(), Error> {
+        self.codes.lock().unwrap().push(code.into());
+        Ok(())
+    }
+
+    fn signed_in(&self, email: &str) -> Result<(), Error> {
+        self.signed_in.lock().unwrap().push(email.into());
+        Ok(())
+    }
+
+    fn withdraw(&self) {
+        self.withdrawn.fetch_add(1, Ordering::SeqCst);
     }
 
     fn open(&self, url: &str) -> Result<(), Error> {
@@ -175,7 +201,8 @@ impl Fixture {
         Self::with(replies, None)
     }
 
-    /// `tok_os` stored, a day from expiring. `load` has run.
+    /// `tok_os` stored for the fake server, a day from expiring. `load` has
+    /// run.
     pub fn signed_in(replies: Vec<(u16, String)>) -> Self {
         Self::with(
             replies,
@@ -183,14 +210,20 @@ impl Fixture {
                 token: OS_TOKEN.into(),
                 expires_at: NOW + 86_400,
                 email: "ada@example.com".into(),
+                origin: "{BASE}".into(),
             }),
         )
     }
 
+    /// `{BASE}` as a stored session's origin is the fake server's.
     pub fn with(replies: Vec<(u16, String)>, stored: Option<OsSession>) -> Self {
         let server = FakeServer::start(replies);
         let dir = temp_dir("broker");
         let store = dir.join("mauvely/os.cred");
+        let stored = stored.map(|mut s| {
+            s.origin = s.origin.replace("{BASE}", &server.base);
+            s
+        });
         if let Some(s) = &stored {
             Store::new(store.clone(), Box::new(FakeSeal))
                 .save(s)

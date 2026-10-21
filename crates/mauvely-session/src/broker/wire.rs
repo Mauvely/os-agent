@@ -68,15 +68,21 @@ pub fn parse(line: &[u8]) -> Result<Request, Reason> {
 }
 
 /// What the Devices tab will call the session: control characters dropped,
-/// at most 120 characters, nothing when that leaves nothing.
+/// trimmed, at most 120 UTF-16 units as the server counts them, nothing when
+/// that leaves nothing.
 fn label(text: &str) -> Option<String> {
-    let clean: String = text
+    let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+    let mut units = 0;
+    let cut: String = clean
+        .trim()
         .chars()
-        .filter(|c| !c.is_control())
-        .take(MAX_LABEL)
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= MAX_LABEL
+        })
         .collect();
-    let clean = clean.trim();
-    (!clean.is_empty()).then(|| clean.to_owned())
+    let cut = cut.trim();
+    (!cut.is_empty()).then(|| cut.to_owned())
 }
 
 /// Why a request was not answered with a token.
@@ -240,6 +246,30 @@ mod tests {
         );
         assert_eq!(label("\n\t "), None);
         assert_eq!(label(&"é".repeat(300)).unwrap().chars().count(), MAX_LABEL);
+    }
+
+    /// The server's limit is JavaScript's `length` after `trim()`: UTF-16
+    /// units. A label over it fails the whole mint with `invalid_field`.
+    #[test]
+    fn labels_fit_the_servers_count() {
+        let units = |s: &str| s.encode_utf16().count();
+        let emoji = "\u{1F600}";
+        let cut = label(&format!("{}{emoji}", "a".repeat(119))).unwrap();
+        assert_eq!(cut, "a".repeat(119));
+        let cut = label(&emoji.repeat(61)).unwrap();
+        assert_eq!(units(&cut), MAX_LABEL);
+        // Trimmed before it is counted, and after it is cut.
+        let cut = label(&format!("   {}", "b".repeat(120))).unwrap();
+        assert_eq!(cut, "b".repeat(120));
+        let cut = label(&format!("{} c", "b".repeat(119))).unwrap();
+        assert_eq!(cut, "b".repeat(119));
+        for text in [
+            &"x".repeat(500),
+            &emoji.repeat(100),
+            &"\u{10000}a".repeat(70),
+        ] {
+            assert!(units(&label(text).unwrap()) <= MAX_LABEL);
+        }
     }
 
     #[test]

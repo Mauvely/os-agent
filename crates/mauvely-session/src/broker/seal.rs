@@ -10,7 +10,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -85,14 +85,19 @@ pub struct OsSession {
     #[serde(rename = "expiresAt")]
     pub expires_at: u64,
     pub email: String,
+    /// The accounts origin it belongs to. A session sealed for another is
+    /// forgotten rather than sent there.
+    #[serde(default)]
+    pub origin: String,
 }
 
-impl From<Minted> for OsSession {
-    fn from(m: Minted) -> Self {
+impl OsSession {
+    pub fn new(m: Minted, origin: &str) -> Self {
         OsSession {
             token: m.token,
             expires_at: m.expires_at,
             email: m.email,
+            origin: origin.to_owned(),
         }
     }
 }
@@ -103,6 +108,7 @@ impl std::fmt::Debug for OsSession {
             .field("token", &"<redacted>")
             .field("expires_at", &self.expires_at)
             .field("email", &self.email)
+            .field("origin", &self.origin)
             .finish()
     }
 }
@@ -150,11 +156,7 @@ impl Store {
 /// directory only its owner can enter.
 fn write_private(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     let dir = path.parent().unwrap_or(Path::new("."));
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    crate::private_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
@@ -242,10 +244,18 @@ pub mod tests {
         let dir = temp_dir("store");
         let store = Store::new(dir.join("mauvely/os.cred"), Box::new(FakeSeal));
         assert_eq!(store.load().unwrap(), None);
+        // staged.rs may have made the directory first, with the umask's mode.
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::set_permissions(
+            store.path.parent().unwrap(),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
         let session = OsSession {
             token: "tok_os".into(),
             expires_at: 1_771_200_000,
             email: "ada@example.com".into(),
+            origin: "https://mauvely.com".into(),
         };
         store.save(&session).unwrap();
         assert_eq!(store.load().unwrap(), Some(session.clone()));

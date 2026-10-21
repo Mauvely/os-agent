@@ -25,6 +25,11 @@ pub const BROWSERS: [&str; 2] = ["org.chromium.Chromium", "org.mozilla.firefox"]
 /// only here (`flatpak --system`).
 const SYSTEM_APPS: &str = "/var/lib/flatpak/app/";
 
+/// The remote the agent installs the Mauvely apps from (website-devices'
+/// `worker/lib/remotes.ts`). A `com.mauvely.*` app from any other remote is
+/// not ours, even system-wide: a wheel user can install one from Flathub.
+pub const MAUVELY_REMOTE: &str = "mauvely";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
     /// Not in a Flatpak sandbox: its root has no `.flatpak-info`.
@@ -41,6 +46,19 @@ pub struct Sandbox {
     pub app: String,
     /// `[Instance] app-path`: the deploy's `files` directory, which names the
     /// installation.
+    pub app_path: String,
+    /// Whether the sandbox's `/app` is that directory on disk: the same
+    /// device and inode, not only the same string.
+    pub app_mounted: bool,
+    /// The remote the deploy came from, read from `<app-path>/../deploy` for
+    /// a system install. `None` when it was not read.
+    pub origin: Option<String>,
+}
+
+/// What a `.flatpak-info` says, before anything is checked on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Info {
+    pub app: String,
     pub app_path: String,
 }
 
@@ -86,6 +104,13 @@ pub enum Refusal {
         app: String,
         app_path: String,
     },
+    /// The sandbox's `/app` is not the directory its `app-path` names.
+    NotMounted(String),
+    /// A Mauvely app id, but not from the Mauvely remote.
+    WrongOrigin {
+        app: String,
+        origin: Option<String>,
+    },
 }
 
 impl Refusal {
@@ -99,6 +124,11 @@ impl Refusal {
             Refusal::NotSystem { app_path, .. } => {
                 format!("not a system install ({app_path})")
             }
+            Refusal::NotMounted(app) => format!("{app}'s /app is not its app-path"),
+            Refusal::WrongOrigin { origin, .. } => match origin {
+                Some(o) => format!("installed from {o:?}, not {MAUVELY_REMOTE:?}"),
+                None => "its deploy names no remote".into(),
+            },
         }
     }
 }
@@ -149,6 +179,15 @@ pub fn authorise(caller: &Caller, ask: Ask) -> Result<Grant, Refusal> {
             app_path: sandbox.app_path.clone(),
         });
     }
+    if !sandbox.app_mounted {
+        return Err(Refusal::NotMounted(sandbox.app.clone()));
+    }
+    if matches!(grant, Grant::App(_)) && sandbox.origin.as_deref() != Some(MAUVELY_REMOTE) {
+        return Err(Refusal::WrongOrigin {
+            app: sandbox.app.clone(),
+            origin: sandbox.origin.clone(),
+        });
+    }
     Ok(grant)
 }
 
@@ -170,10 +209,61 @@ pub fn system_install(id: &str, app_path: &str) -> bool {
             .all(|c| !c.is_empty() && c != "." && c != ".." && !c.contains('\0'))
 }
 
+/// A Flatpak id as the broker will build a path from it: letters, digits,
+/// `.`, `_` and `-`, no empty element, at most 255 bytes.
+pub fn well_formed_id(id: &str) -> bool {
+    id.len() <= 255
+        && id.split('.').all(|e| {
+            !e.is_empty()
+                && e.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+}
+
+/// An absolute path with no empty, `.` or `..` component.
+pub fn clean_absolute(path: &str) -> bool {
+    path.strip_prefix('/').is_some_and(|rest| {
+        rest.split('/')
+            .all(|c| !c.is_empty() && c != "." && c != ".." && !c.contains('\0'))
+    })
+}
+
+/// The origin remote's name from a deploy file: a GVariant `(ssasta{sv})`
+/// whose first string it is. `None` for anything that is not one.
+///
+/// A tuple's members are laid out in order, and the end of each
+/// variable-sized member but the last is a framing offset at the end of the
+/// tuple, in reverse order, so the first member's end is the very last
+/// offset. Offsets are 1, 2, 4 or 8 bytes, the fewest that can hold the
+/// tuple's size (GVariant specification, 2.3.6).
+pub fn deploy_origin(bytes: &[u8]) -> Option<String> {
+    let n = bytes.len();
+    let width = match n {
+        0 => return None,
+        1..=0xff => 1,
+        0x100..=0xffff => 2,
+        0x1_0000..=0xffff_ffff => 4,
+        _ => 8,
+    };
+    // `(ssasta{sv})` has three framing offsets: two strings and the array.
+    let table = n.checked_sub(3 * width)?;
+    let mut end = [0u8; 8];
+    end[..width].copy_from_slice(&bytes[n - width..]);
+    let end = usize::try_from(u64::from_le_bytes(end)).ok()?;
+    if end == 0 || end > table {
+        return None;
+    }
+    let name = bytes[..end].strip_suffix(&[0])?;
+    if name.is_empty() || name.contains(&0) {
+        return None;
+    }
+    String::from_utf8(name.to_vec()).ok()
+}
+
 /// Reads a `.flatpak-info`. It is a GLib key file that flatpak writes; this
 /// reads it strictly and fails on anything GLib would not load, and on a
 /// group or key given twice, which flatpak never writes.
-pub fn parse_flatpak_info(text: &str) -> Result<Sandbox, String> {
+pub fn parse_flatpak_info(text: &str) -> Result<Info, String> {
     let file = KeyFile::parse(text)?;
     let app = file
         .string("Application", "name")?
@@ -184,7 +274,7 @@ pub fn parse_flatpak_info(text: &str) -> Result<Sandbox, String> {
     if app.is_empty() || app_path.is_empty() {
         return Err("an empty name or app-path".into());
     }
-    Ok(Sandbox { app, app_path })
+    Ok(Info { app, app_path })
 }
 
 /// The raw values, by group and key. Values are unescaped only when read, as
@@ -271,11 +361,28 @@ mod tests {
         format!("/var/lib/flatpak/app/{id}/x86_64/stable/{COMMIT}/files")
     }
 
+    /// A sandbox whose `/app` is its `app-path`, from the remote the agent
+    /// would have used: `mauvely` for ours, `flathub` for the rest.
     fn sandbox(app: &str, app_path: &str) -> Caller {
+        let origin = if app.starts_with("com.mauvely.") {
+            MAUVELY_REMOTE
+        } else {
+            "flathub"
+        };
         Caller::Sandbox(Sandbox {
             app: app.into(),
             app_path: app_path.into(),
+            app_mounted: true,
+            origin: Some(origin.into()),
         })
+    }
+
+    fn with(caller: Caller, f: impl FnOnce(&mut Sandbox)) -> Caller {
+        let Caller::Sandbox(mut s) = caller else {
+            unreachable!()
+        };
+        f(&mut s);
+        Caller::Sandbox(s)
     }
 
     fn info(app: &str, app_path: &str) -> String {
@@ -452,12 +559,158 @@ mod tests {
     }
 
     #[test]
+    fn the_app_on_disk_must_be_the_one_named() {
+        // The string says the system install; the sandbox's /app is
+        // something else.
+        for (id, ask) in [
+            ("org.mozilla.firefox", Ask::Browser),
+            ("com.mauvely.compose", Ask::Token("compose")),
+        ] {
+            let caller = with(sandbox(id, &system(id)), |s| s.app_mounted = false);
+            assert_eq!(authorise(&caller, ask), Err(Refusal::NotMounted(id.into())));
+        }
+    }
+
+    #[test]
+    fn a_mauvely_app_comes_from_the_mauvely_remote() {
+        let id = "com.mauvely.compose";
+        for origin in [
+            Some("flathub"),
+            Some("mauvely-test"),
+            Some("Mauvely"),
+            Some(""),
+            None,
+        ] {
+            let caller = with(sandbox(id, &system(id)), |s| {
+                s.origin = origin.map(Into::into)
+            });
+            assert_eq!(
+                authorise(&caller, Ask::Token("compose")),
+                Err(Refusal::WrongOrigin {
+                    app: id.into(),
+                    origin: origin.map(Into::into)
+                }),
+                "{origin:?}"
+            );
+        }
+        // The browsers come from wherever the organisation put them.
+        let firefox = with(
+            sandbox("org.mozilla.firefox", &system("org.mozilla.firefox")),
+            |s| s.origin = Some("my-mirror".into()),
+        );
+        assert_eq!(
+            authorise(&firefox, Ask::Browser),
+            Ok(Grant::Browser("org.mozilla.firefox"))
+        );
+    }
+
+    #[test]
+    fn reads_the_origin_from_real_deploy_files() {
+        // From S0's user installation: 2-byte and 1-byte framing offsets.
+        let firefox = include_bytes!("../../fixtures/deploy-firefox-flathub");
+        let compose = include_bytes!("../../fixtures/deploy-compose-test-remote");
+        let small = include_bytes!("../../fixtures/deploy-baseapp-small");
+        assert_eq!(deploy_origin(firefox).as_deref(), Some("flathub"));
+        assert_eq!(deploy_origin(compose).as_deref(), Some("mauvely-test"));
+        assert!(small.len() < 256);
+        assert_eq!(deploy_origin(small).as_deref(), Some("flathub"));
+    }
+
+    #[test]
+    fn a_deploy_that_is_not_one_names_no_origin() {
+        let good = include_bytes!("../../fixtures/deploy-firefox-flathub").to_vec();
+        let n = good.len();
+        let mut bad: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            vec![0],
+            b"flathub".to_vec(),
+            // Cut short, so the offsets are read from the wrong place.
+            good[..n - 1].to_vec(),
+            good[..100].to_vec(),
+        ];
+        // The first offset pointing past the end, at 0, or not after a NUL.
+        for first in [0u16, 1, 7, n as u16, 0xffff] {
+            let mut b = good.clone();
+            b[n - 2..].copy_from_slice(&first.to_le_bytes());
+            bad.push(b);
+        }
+        // The first offset inside the offsets themselves: "xyz\0" would read
+        // as a name if the table were not out of bounds.
+        bad.push(vec![b'x', b'y', b'z', 0, 4]);
+        // A NUL inside the name, and a name that is not UTF-8.
+        let mut b = good.clone();
+        b[3] = 0;
+        bad.push(b);
+        let mut b = good.clone();
+        b[0] = 0xff;
+        bad.push(b);
+        for b in &bad {
+            assert_eq!(deploy_origin(b), None, "{:?}", &b[..b.len().min(12)]);
+        }
+    }
+
+    #[test]
+    fn ids_and_paths_the_broker_will_touch() {
+        for id in [
+            "org.mozilla.firefox",
+            "com.mauvely.compose",
+            "io.qt.qtwebengine.BaseApp",
+            "a_b-c.d",
+        ] {
+            assert!(well_formed_id(id), "{id}");
+        }
+        for id in [
+            "",
+            ".",
+            "..",
+            "a..b",
+            ".a",
+            "a.",
+            "a/b",
+            "../../etc",
+            "a b",
+            "a\0b",
+            &"a".repeat(256),
+        ] {
+            assert!(!well_formed_id(id), "{id:?}");
+        }
+        assert!(clean_absolute(
+            "/var/lib/flatpak/app/a/x86_64/stable/c/files"
+        ));
+        for p in [
+            "",
+            "relative/path",
+            "/a//b",
+            "/a/./b",
+            "/a/../b",
+            "/a/b/",
+            "//a",
+        ] {
+            assert!(!clean_absolute(p), "{p:?}");
+        }
+    }
+
+    /// mauvelyd grants the socket to `reconcile::BROWSERS`; the broker
+    /// answers `BROWSERS`. Two crates, one list.
+    #[test]
+    fn the_browsers_match_the_agents() {
+        let reconcile = include_str!("../../../mauvelyd/src/reconcile.rs");
+        let line = reconcile
+            .lines()
+            .find(|l| l.starts_with("pub const BROWSERS"))
+            .expect("reconcile::BROWSERS");
+        let list = line.split_once('=').unwrap().1;
+        let theirs: Vec<&str> = list.split('"').skip(1).step_by(2).collect();
+        assert_eq!(theirs, BROWSERS);
+    }
+
+    #[test]
     fn parses_what_flatpak_writes() {
         let s = parse_flatpak_info(&info("org.mozilla.firefox", &system("org.mozilla.firefox")))
             .unwrap();
         assert_eq!(
             s,
-            Sandbox {
+            Info {
                 app: "org.mozilla.firefox".into(),
                 app_path: system("org.mozilla.firefox")
             }

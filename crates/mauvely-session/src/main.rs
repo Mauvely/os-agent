@@ -51,6 +51,8 @@ trait Notifications {
         expire_timeout: i32,
     ) -> zbus::Result<u32>;
 
+    fn close_notification(&self, id: u32) -> zbus::Result<()>;
+
     #[zbus(signal)]
     fn action_invoked(&self, id: u32, action_key: &str) -> zbus::Result<()>;
 }
@@ -172,7 +174,6 @@ fn start_broker(
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let origin = accounts::origin_for(&server)?;
         let runtime = absolute("XDG_RUNTIME_DIR").ok_or("XDG_RUNTIME_DIR is not set")?;
-        let listener = socket::listen(&runtime.join("mauvely"))?;
         let desktop = SessionDesktop {
             notifications: notifications.clone(),
             portal: OpenUriProxy::new(session).ok(),
@@ -187,15 +188,12 @@ fn start_broker(
         ));
         broker.load();
         let serving = Arc::clone(&broker);
+        // Listens, tries again when it cannot, and listens again when the
+        // socket is replaced.
         std::thread::Builder::new()
             .name("broker".into())
-            .spawn(move || {
-                let e = socket::serve(listener, serving, peer::identify);
-                // Exit, and systemd starts us again with a new socket.
-                eprintln!("mauvely-session: broker: {e}");
-                std::process::exit(1);
-            })?;
-        eprintln!("mauvely-session: broker: listening, for {origin}");
+            .spawn(move || socket::serve(&runtime.join("mauvely"), serving, peer::identify))?;
+        eprintln!("mauvely-session: broker: for {origin}");
         Ok(broker)
     })();
     started
@@ -207,25 +205,54 @@ fn start_broker(
 struct SessionDesktop {
     notifications: NotificationsProxy<'static>,
     portal: Option<OpenUriProxy<'static>>,
-    /// The id of the offer on screen, for the click handler.
+    /// The id of the sign-in notification on screen, for the click handler.
+    /// The offer, the code and the confirmation replace one another.
     offered: Arc<AtomicU32>,
 }
 
-impl broker::Desktop for SessionDesktop {
-    fn offer(&self) -> Result<(), Error> {
+impl SessionDesktop {
+    fn show(&self, summary: &str, body: &str, actions: &[&str], timeout: i32) -> Result<(), Error> {
         let id = self.notifications.notify(
             "Mauvely OS",
             self.offered.load(Ordering::Relaxed),
             "user-identity",
-            "Sign in to Mauvely",
-            "",
-            &[SIGN_IN, "Sign in"],
+            summary,
+            body,
+            actions,
             HashMap::new(),
-            // Stays until dismissed, like the restart.
-            0,
+            timeout,
         )?;
         self.offered.store(id, Ordering::Relaxed);
         Ok(())
+    }
+}
+
+impl broker::Desktop for SessionDesktop {
+    /// Stays until dismissed, like the restart.
+    fn offer(&self) -> Result<(), Error> {
+        self.show("Sign in to Mauvely", "", &[SIGN_IN, "Sign in"], 0)
+    }
+
+    /// Stays while the person types it.
+    fn show_code(&self, code: &str) -> Result<(), Error> {
+        self.show("Enter this code to sign in", code, &[], 0)
+    }
+
+    fn signed_in(&self, email: &str) -> Result<(), Error> {
+        let summary = match email {
+            "" => "Signed in to Mauvely".to_owned(),
+            email => format!("Signed in to Mauvely as {email}"),
+        };
+        self.show(&summary, "", &[], -1)
+    }
+
+    fn withdraw(&self) {
+        let id = self.offered.load(Ordering::Relaxed);
+        if id != 0
+            && let Err(e) = self.notifications.close_notification(id)
+        {
+            eprintln!("mauvely-session: could not take the code away: {e}");
+        }
     }
 
     /// Through the OpenURI portal, or `xdg-open` when there is none.
@@ -276,16 +303,77 @@ fn state_home() -> Option<PathBuf> {
     absolute("XDG_STATE_HOME").or_else(|| absolute("HOME").map(|h| h.join(".local/state")))
 }
 
-/// `/etc/mauvely`, or `MAUVELY_CONFIG_DIR`, as for mauvelyd.
+/// `/etc/mauvely`.
 fn config_dir() -> PathBuf {
-    std::env::var_os("MAUVELY_CONFIG_DIR")
-        .filter(|v| !v.is_empty())
+    config_dir_from(
+        std::env::var_os("MAUVELY_CONFIG_DIR"),
+        cfg!(debug_assertions),
+    )
+}
+
+/// `MAUVELY_CONFIG_DIR` moves it in a debug build only. In a release build
+/// the environment, which `~/.config/environment.d/` sets, would choose the
+/// server the `os` token is sent to.
+fn config_dir_from(env: Option<std::ffi::OsString>, honour: bool) -> PathBuf {
+    env.filter(|v| honour && !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/etc/mauvely"))
+}
+
+/// Makes `dir`, and any parent missing, `0700`, as the base directory spec
+/// asks, and tightens `dir` to `0700` if it is not.
+pub(crate) fn private_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    let mode = std::fs::metadata(dir)?.permissions().mode();
+    if mode & 0o777 != 0o700 {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 fn hostname() -> String {
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .map(|h| h.trim().to_owned())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_config_dir_moves_only_in_debug_builds() {
+        let moved = Some(std::ffi::OsString::from("/tmp/elsewhere"));
+        assert_eq!(
+            config_dir_from(moved.clone(), true),
+            Path::new("/tmp/elsewhere")
+        );
+        assert_eq!(config_dir_from(moved, false), Path::new("/etc/mauvely"));
+        assert_eq!(config_dir_from(None, true), Path::new("/etc/mauvely"));
+        assert_eq!(
+            config_dir_from(Some("".into()), true),
+            Path::new("/etc/mauvely")
+        );
+    }
+
+    #[test]
+    fn a_private_dir_is_0700() {
+        let base = std::env::temp_dir().join(format!("mauvely-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dir = base.join("state/mauvely");
+        private_dir(&dir).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&base.join("state")), 0o700);
+        // One made by someone else first, with the umask's mode.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        private_dir(&dir).unwrap();
+        assert_eq!(mode(&dir), 0o700);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }

@@ -66,7 +66,7 @@ pub fn check(
     }
     notify()?;
     if let Some(dir) = memory.parent() {
-        fs::create_dir_all(dir)?;
+        crate::private_dir(dir)?;
     }
     fs::write(memory, format!("{checksum}\n"))?;
     Ok(())
@@ -121,6 +121,13 @@ mod tests {
 
         look(BOOTED);
         look(STAGED);
+        // Its directory holds the os session too: private.
+        let mode = std::os::unix::fs::PermissionsExt::mode(
+            &fs::metadata(memory.parent().unwrap())
+                .unwrap()
+                .permissions(),
+        );
+        assert_eq!(mode & 0o777, 0o700);
         look(STAGED);
         // Remembered on disk, so a new session does not say it again.
         assert_eq!(fs::read_to_string(&memory).unwrap(), format!("{NEXT}\n"));

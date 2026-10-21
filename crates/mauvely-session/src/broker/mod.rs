@@ -32,9 +32,16 @@ use wire::{Granted, Reason, Request};
 use crate::Error;
 
 /// What the broker needs from the graphical session.
+/// The sign-in notifications are one: each replaces the one before.
 pub trait Desktop: Send + Sync {
-    /// Shows "Sign in to Mauvely", in place of one already shown.
+    /// "Sign in to Mauvely", with a Sign in button.
     fn offer(&self) -> Result<(), Error>;
+    /// The code to type into the link page.
+    fn show_code(&self, code: &str) -> Result<(), Error>;
+    /// "Signed in to Mauvely as <email>", so a wrong account is seen.
+    fn signed_in(&self, email: &str) -> Result<(), Error>;
+    /// Takes the code away once it is no use.
+    fn withdraw(&self);
     /// Opens `url` in the person's default browser.
     fn open(&self, url: &str) -> Result<(), Error>;
 }
@@ -126,6 +133,18 @@ impl Broker {
     pub fn load(&self) {
         let mut os = lock(&self.os);
         match self.store.load() {
+            // Linked to another accounts service: /etc/mauvely/server
+            // changed. Its token is not sent to this one.
+            Ok(Some(s)) if s.origin != self.accounts.origin() => {
+                eprintln!(
+                    "mauvely-session: broker: this computer's sign-in is for {:?}, not {:?}",
+                    s.origin,
+                    self.accounts.origin()
+                );
+                if let Err(e) = self.store.forget() {
+                    eprintln!("mauvely-session: broker: {e}");
+                }
+            }
             Ok(Some(s)) if s.expires_at > self.clock.now() => {
                 eprintln!("mauvely-session: broker: this computer is signed in");
                 *os = Some(s);
@@ -311,7 +330,14 @@ impl Broker {
         let result = self.run_link();
         self.linking.store(false, Ordering::SeqCst);
         match result {
-            Ok(()) => eprintln!("mauvely-session: broker: this computer is signed in"),
+            Ok(email) => {
+                eprintln!("mauvely-session: broker: this computer is signed in");
+                // Which account, so one that is not the person's is seen at
+                // once.
+                if let Err(e) = self.desktop.signed_in(&email) {
+                    eprintln!("mauvely-session: broker: {e}");
+                }
+            }
             Err(Link::NotStarted(e)) => {
                 // The person asked and nothing happened, so ask again.
                 eprintln!("mauvely-session: broker: could not start signing in: {e}");
@@ -319,17 +345,23 @@ impl Broker {
                 self.offer_if_wanted();
             }
             Err(Link::Ended(code)) => {
-                eprintln!("mauvely-session: broker: signing in ended: {code}")
+                eprintln!("mauvely-session: broker: signing in ended: {code}");
+                self.desktop.withdraw();
             }
         }
     }
 
-    fn run_link(&self) -> Result<(), Link> {
+    /// The account's address, once linked.
+    fn run_link(&self) -> Result<String, Link> {
         let name = match self.hostname.as_str() {
             "" => "Mauvely OS".to_owned(),
             host => format!("Mauvely OS on {host}"),
         };
         let started = self.accounts.start(&name).map_err(Link::NotStarted)?;
+        // The code is shown to the person, never put in the page's address.
+        self.desktop
+            .show_code(&started.user_code)
+            .map_err(|e| Link::NotStarted(format!("showing the code: {e}")))?;
         self.desktop
             .open(&started.link)
             .map_err(|e| Link::NotStarted(format!("opening the browser: {e}")))?;
@@ -345,8 +377,9 @@ impl Broker {
                 Poll::SlowDown => interval = interval.max(15),
                 Poll::Stop(code) => return Err(Link::Ended(code)),
                 Poll::Done(minted) => {
-                    self.adopt(minted.into());
-                    return Ok(());
+                    let email = minted.email.clone();
+                    self.adopt(OsSession::new(minted, self.accounts.origin()));
+                    return Ok(email);
                 }
             }
         }

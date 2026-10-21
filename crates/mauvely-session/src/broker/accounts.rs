@@ -71,7 +71,9 @@ impl fmt::Debug for Minted {
 /// A device link the person is to approve.
 pub struct Started {
     pub device_code: String,
-    /// The page that approves it, on the accounts origin.
+    /// The code the person types into the page.
+    pub user_code: String,
+    /// The page that approves it, on the accounts origin, without the code.
     pub link: String,
     /// Seconds between polls.
     pub interval: u64,
@@ -304,13 +306,25 @@ pub fn start_outcome(status: u16, body: &str, origin: &str) -> Result<Started, S
     let v: Value = serde_json::from_str(body).map_err(|_| "not JSON")?;
     let text = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| plain(s));
     let device_code = text("deviceCode").ok_or("no deviceCode")?;
-    // The server builds it from its own origin. Opened only when that is
-    // the origin this computer belongs to.
-    let link = text("verificationUriComplete")
+    // Typed by the person: `ABCD-EFGH` today.
+    let user_code = text("userCode")
+        .filter(|c| {
+            c.len() <= 32
+                && c.bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'-')
+        })
+        .ok_or("no userCode")?;
+    // The page without the code. Opening it puts it in an argv that every
+    // local user can read, and with the code any of them could approve it
+    // for their own account. The server builds it from its own origin;
+    // opened only on the origin this computer belongs to.
+    let link = text("verificationUri")
         .filter(|l| l.strip_prefix(origin).is_some_and(|p| p.starts_with('/')))
-        .ok_or("no verificationUriComplete on the accounts origin")?;
+        .filter(|l| !l.contains(user_code))
+        .ok_or("no verificationUri on the accounts origin")?;
     Ok(Started {
         device_code: device_code.to_owned(),
+        user_code: user_code.to_owned(),
         link: link.to_owned(),
         interval: v
             .get("interval")
@@ -343,7 +357,7 @@ pub fn poll_outcome(status: u16, body: &str) -> Poll {
 }
 
 /// `/api/auth/me` answers 200 either way, with `user` null when the token
-/// is not a session.
+/// is not a session, and 403 for an app its organisation has turned off.
 pub fn alive_outcome(status: u16, body: &str) -> Alive {
     match status {
         200 => match serde_json::from_str::<Value>(body)
@@ -354,7 +368,9 @@ pub fn alive_outcome(status: u16, body: &str) -> Alive {
             Some(Value::Null) => Alive::No,
             _ => Alive::Unknown,
         },
-        401 => Alive::No,
+        // 403 is an app the organisation has turned off, or a session that
+        // may no longer act: either way, not one to hand out.
+        401 | 403 => Alive::No,
         _ => Alive::Unknown,
     }
 }
@@ -506,13 +522,28 @@ mod tests {
             "interval":5,"expiresIn":600}"#;
         let s = start_outcome(200, body, ORIGIN).unwrap();
         assert_eq!(s.device_code, "dc_secret");
-        assert_eq!(s.link, "https://mauvely.com/link?code=ABCD-EFGH");
+        assert_eq!(s.user_code, "ABCD-EFGH");
+        // The page without the code: whatever opens it puts the link in an
+        // argv that every local user can read.
+        assert_eq!(s.link, "https://mauvely.com/link");
+        assert!(!s.link.contains("ABCD"));
         assert_eq!((s.interval, s.expires_in), (5, 600));
+
+        // A code the person could not type, or one the page already holds.
+        for code in ["", "abcd-efgh", "ABCD EFGH", "AB;CD", &"A".repeat(33)] {
+            let body = format!(
+                r#"{{"deviceCode":"d","userCode":"{code}","verificationUri":"https://mauvely.com/link"}}"#
+            );
+            assert!(start_outcome(200, &body, ORIGIN).is_err(), "{code:?}");
+        }
+        let in_link = r#"{"deviceCode":"d","userCode":"ABCD-EFGH",
+            "verificationUri":"https://mauvely.com/link?code=ABCD-EFGH"}"#;
+        assert!(start_outcome(200, in_link, ORIGIN).is_err());
 
         // Defaults, and bounds on what the server asks for.
         let s = start_outcome(
             200,
-            r#"{"deviceCode":"d","verificationUriComplete":"https://mauvely.com/link?code=A","interval":0,"expiresIn":99999}"#,
+            r#"{"deviceCode":"d","userCode":"A","verificationUri":"https://mauvely.com/link","interval":0,"expiresIn":99999}"#,
             ORIGIN,
         )
         .unwrap();
@@ -527,13 +558,13 @@ mod tests {
             "-https://mauvely.com/link",
             "https://mauvely.com/link?code=A B",
         ] {
-            let body = format!(r#"{{"deviceCode":"d","verificationUriComplete":"{link}"}}"#);
+            let body = format!(r#"{{"deviceCode":"d","userCode":"A","verificationUri":"{link}"}}"#);
             assert!(start_outcome(200, &body, ORIGIN).is_err(), "{link}");
         }
         assert!(
             start_outcome(
                 200,
-                r#"{"verificationUriComplete":"https://mauvely.com/l"}"#,
+                r#"{"userCode":"A","verificationUri":"https://mauvely.com/l"}"#,
                 ORIGIN
             )
             .is_err()
@@ -579,6 +610,9 @@ mod tests {
             Alive::No
         );
         assert_eq!(alive_outcome(401, ""), Alive::No);
+        // An app the organisation has turned off is refused on every route.
+        assert_eq!(alive_outcome(403, &error("app_not_allowed")), Alive::No);
+        assert_eq!(alive_outcome(403, &error("forbidden")), Alive::No);
         assert_eq!(alive_outcome(200, "<html>"), Alive::Unknown);
         assert_eq!(alive_outcome(200, "{}"), Alive::Unknown);
         assert_eq!(alive_outcome(503, ""), Alive::Unknown);
