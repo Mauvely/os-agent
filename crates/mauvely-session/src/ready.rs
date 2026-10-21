@@ -279,13 +279,17 @@ fn ready(applications: &Path, install: &Install) -> Option<Ready> {
     })
 }
 
-/// The argv that opens an app from its exported desktop file. `kioclient` is
-/// KDE's own launcher, which starts it the way Plasma's menu does, and it is
-/// in the Kinoite 44 image.
+/// The argv that opens an app from its exported desktop file. `gio launch`
+/// takes the file itself, so it needs neither the file to be on the search
+/// path nor a display. `kioclient exec`, KDE's own, asks "This will start the
+/// program: … click Cancel" for a file it does not find in an applications
+/// directory of its own search path (seen with the exports left off
+/// `XDG_DATA_DIRS`). The app moves itself into its own systemd scope when
+/// `flatpak run` starts, so it does not end with this helper.
 pub fn launch_argv(desktop: &Path) -> Vec<String> {
     vec![
-        "kioclient".into(),
-        "exec".into(),
+        "gio".into(),
+        "launch".into(),
         desktop.to_string_lossy().into_owned(),
     ]
 }
@@ -719,8 +723,8 @@ mod tests {
         assert_eq!(
             launch_argv(path),
             [
-                "kioclient",
-                "exec",
+                "gio",
+                "launch",
                 "/var/lib/flatpak/exports/share/applications/com.mauvely.compose.desktop"
             ]
         );
@@ -757,6 +761,6 @@ mod tests {
         let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert!(run_argv(&argv(&["true"])).is_ok());
         assert!(run_argv(&argv(&["false"])).is_err());
-        assert!(run_argv(&argv(&["/nonexistent/kioclient", "exec"])).is_err());
+        assert!(run_argv(&argv(&["/nonexistent/gio", "launch"])).is_err());
     }
 }
