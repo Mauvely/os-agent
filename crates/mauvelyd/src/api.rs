@@ -59,20 +59,65 @@ pub struct FlatpakReport<'a> {
     pub managed: bool,
 }
 
+/// `last_apply.failed` holds at most this many apps, the first ones.
+pub const MAX_FAILED: usize = 50;
+/// And each `error` at most this many characters, counted in UTF-16 units as
+/// the server counts them, so one that is "too long" there never is here.
+pub const MAX_FAILED_ERROR: usize = 500;
+
+/// An app whose install, update or removal failed in an apply: its Flatpak id
+/// and branch, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FailedApp {
+    pub id: String,
+    pub branch: String,
+    pub error: String,
+}
+
 /// The outcome of the previous reconcile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LastApply {
     pub ok: bool,
+    /// Every failure as text. `failed` says which apps, where that is known.
     pub errors: Vec<String>,
+    /// Left out when empty, as a check-in was before it existed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<FailedApp>,
 }
 
 impl LastApply {
     pub fn from_errors(errors: Vec<String>) -> Self {
+        Self::new(errors, Vec::new())
+    }
+
+    /// `failed` is cut to `MAX_FAILED` apps and their errors to
+    /// `MAX_FAILED_ERROR` characters. Each is also in `errors`, which is not
+    /// cut here.
+    pub fn new(errors: Vec<String>, failed: Vec<FailedApp>) -> Self {
         LastApply {
             ok: errors.is_empty(),
             errors,
+            failed: failed
+                .into_iter()
+                .take(MAX_FAILED)
+                .map(|f| FailedApp {
+                    error: cut(&f.error, MAX_FAILED_ERROR),
+                    ..f
+                })
+                .collect(),
         }
     }
+}
+
+/// `s` cut to at most `max` UTF-16 units, never inside a character.
+fn cut(s: &str, max: usize) -> String {
+    let mut units = 0;
+    s.chars()
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= max
+        })
+        .collect()
 }
 
 impl Default for LastApply {
@@ -232,6 +277,70 @@ mod tests {
         )
         .unwrap();
         assert!(r.desired.image.is_none());
+    }
+
+    fn failed(id: &str, error: &str) -> FailedApp {
+        FailedApp {
+            id: id.into(),
+            branch: "stable".into(),
+            error: error.into(),
+        }
+    }
+
+    #[test]
+    fn failed_apps_are_left_out_when_there_are_none() {
+        // The shape every check-in had before `failed` existed.
+        let json = serde_json::to_value(LastApply::default()).unwrap();
+        assert_eq!(json, serde_json::json!({ "ok": true, "errors": [] }));
+        let json = serde_json::to_value(LastApply::from_errors(vec!["x".into()])).unwrap();
+        assert_eq!(json, serde_json::json!({ "ok": false, "errors": ["x"] }));
+    }
+
+    #[test]
+    fn failed_apps_are_reported_beside_the_errors() {
+        let apply = LastApply::new(
+            vec!["install org.broken.App//stable: no".into()],
+            vec![failed("org.broken.App", "no")],
+        );
+        assert!(!apply.ok);
+        assert_eq!(
+            serde_json::to_value(&apply).unwrap(),
+            serde_json::json!({
+                "ok": false,
+                "errors": ["install org.broken.App//stable: no"],
+                "failed": [{ "id": "org.broken.App", "branch": "stable", "error": "no" }]
+            })
+        );
+    }
+
+    #[test]
+    fn at_most_fifty_failed_apps_are_kept_the_first_ones() {
+        let many = (0..60)
+            .map(|i| failed(&format!("org.example.App{i}"), "no"))
+            .collect();
+        let apply = LastApply::new(Vec::new(), many);
+        assert_eq!(apply.failed.len(), MAX_FAILED);
+        assert_eq!(MAX_FAILED, 50);
+        assert_eq!(apply.failed[0].id, "org.example.App0");
+        assert_eq!(apply.failed[49].id, "org.example.App49");
+    }
+
+    #[test]
+    fn a_failed_apps_error_is_cut_to_500_characters_as_javascript_counts_them() {
+        let cut = |s: &str| {
+            LastApply::new(Vec::new(), vec![failed("a.b.C", s)]).failed[0]
+                .error
+                .clone()
+        };
+        assert_eq!(cut("short"), "short");
+        assert_eq!(cut(&"a".repeat(500)), "a".repeat(500));
+        assert_eq!(cut(&"a".repeat(900)), "a".repeat(500));
+        // The server counts UTF-16 units, so an emoji is two: 250 of them.
+        assert_eq!(cut(&"😀".repeat(400)), "😀".repeat(250));
+        // A pair is never split to make the number.
+        assert_eq!(cut(&format!("{}😀", "a".repeat(499))), "a".repeat(499));
+        // Characters, not bytes: 600 two-byte letters are cut at 500.
+        assert_eq!(cut(&"é".repeat(600)), "é".repeat(500));
     }
 
     #[test]

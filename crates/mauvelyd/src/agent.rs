@@ -210,19 +210,20 @@ impl<'a> Agent<'a> {
             eprintln!("{e}");
         }
 
-        let mut result = reconcile(
+        let applied = reconcile(
             &answer.desired,
             &inventory,
             &mut self.managed,
             host.flatpak,
             host.bootc,
         );
-        let updates = update_flatpaks(&mut self.managed, host.flatpak, api::now());
-        result = LastApply::from_errors([result.errors, updates].concat());
+        let updates = update_flatpaks(&mut self.managed, host.flatpak, api::now(), &inventory.apps);
+        let mut errors = [applied.last_apply.errors, updates.errors].concat();
+        let failed = [applied.last_apply.failed, updates.failed].concat();
         if let Err(e) = state::write_json(&self.paths.managed(), &self.managed) {
-            result = LastApply::from_errors([result.errors, vec![e.to_string()]].concat());
+            errors.push(e.to_string());
         }
-        self.last_apply = result;
+        self.last_apply = LastApply::new(errors, failed);
         Ok(Outcome::Applied {
             interval_s: answer.interval_s,
         })
@@ -530,6 +531,19 @@ mod tests {
         let errors = second["last_apply"]["errors"].as_array().unwrap();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].as_str().unwrap().contains("org.broken.App"));
+        // The app is named, beside the text, in the structured list.
+        let failed = second["last_apply"]["failed"].as_array().unwrap();
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert_eq!(failed[0]["id"], "org.broken.App");
+        assert_eq!(failed[0]["branch"], "stable");
+        assert!(
+            failed[0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("failed to download")
+        );
+        // And a check-in with nothing failed has no such key, as before.
+        assert!(first["last_apply"].get("failed").is_none());
         assert_eq!(second["staged_image"], "img:next");
         assert_eq!(second["remotes"], serde_json::json!(["flathub"]));
         let firefox = second["flatpaks"]
@@ -541,6 +555,65 @@ mod tests {
         assert_eq!(firefox["managed"], true);
         assert_eq!(firefox["remote"], "flathub");
         assert_eq!(second["agent_version"], AGENT_VERSION);
+    }
+
+    #[test]
+    fn the_failed_list_in_a_checkin_is_capped_and_cut_and_the_errors_are_not() {
+        // An id long enough that its error is past 500 characters, then 59
+        // more that fail: 60 apps in all.
+        let mut ids = vec![format!("org.example.{}", "L".repeat(700))];
+        ids.extend((1..60).map(|i| format!("org.example.App{i:02}")));
+        let apps: Vec<String> = ids
+            .iter()
+            .map(|id| {
+                format!(
+                    r#"{{ "id": "{id}", "branch": "stable", "remote": "flathub", "state": "installed" }}"#
+                )
+            })
+            .collect();
+        let desired = format!(
+            r#"{{"device_id":"dev_1","desired":{{"image":null,
+              "remotes":[{{ "name": "flathub", "url": "https://dl.flathub.org/repo/", "gpg_key": "AAEC" }}],
+              "apps":[{}]}},"interval_s":900}}"#,
+            apps.join(",")
+        );
+        let server = FakeServer::start(vec![(200, desired.clone()), (200, desired)]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        for id in &ids {
+            fp.fail_install(id);
+        }
+        let mut agent = Agent::load(
+            paths,
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+        agent.tick();
+        agent.tick();
+
+        let reqs = server.requests();
+        let apply = &body(&reqs[1])["last_apply"];
+        assert_eq!(apply["ok"], false);
+        // Every failure is still in the text list, whole.
+        let errors = apply["errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 60);
+        assert!(errors[0].as_str().unwrap().chars().count() > 700);
+        // The structured one holds the first fifty, each error cut.
+        let failed = apply["failed"].as_array().unwrap();
+        assert_eq!(failed.len(), 50);
+        assert_eq!(failed[0]["id"], ids[0].as_str());
+        assert_eq!(failed[49]["id"], ids[49].as_str());
+        assert_eq!(failed[0]["error"].as_str().unwrap().chars().count(), 500);
+        assert!(
+            failed
+                .iter()
+                .all(|f| f["error"].as_str().unwrap().chars().count() <= 500)
+        );
     }
 
     #[test]

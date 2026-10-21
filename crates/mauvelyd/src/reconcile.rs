@@ -12,7 +12,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-use crate::api::{AppState, Desired, LastApply};
+use crate::api::{AppState, Desired, FailedApp, LastApply};
 use crate::bootc::{self, Bootc};
 use crate::flatpak::{App, Flatpak, Remote};
 use crate::signing::sha256_hex;
@@ -31,14 +31,26 @@ pub struct Inventory {
 /// `broker::caller::BROWSERS`, must name the same ones.
 pub const BROWSERS: [&str; 2] = ["org.chromium.Chromium", "org.mozilla.firefox"];
 
+/// What one reconcile did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Applied {
+    /// For the next check-in.
+    pub last_apply: LastApply,
+    /// The apps that were installed, in order, and not the ones that were
+    /// already there or failed.
+    pub installed: Vec<App>,
+}
+
 pub fn reconcile(
     desired: &Desired,
     inventory: &Inventory,
     managed: &mut Managed,
     flatpak: &dyn Flatpak,
     bootc: &dyn Bootc,
-) -> LastApply {
+) -> Applied {
     let mut errors = Vec::new();
+    let mut failed = Vec::new();
+    let mut installed_now = Vec::new();
     let mut installed = inventory.apps.clone();
     let mut remotes: Vec<String> = inventory.remotes.iter().map(|r| r.name.clone()).collect();
 
@@ -101,9 +113,17 @@ pub fn reconcile(
                 if !managed.has_app(&app.id, &app.branch) {
                     managed.apps.push(new.clone());
                 }
-                installed.push(new);
+                installed.push(new.clone());
+                installed_now.push(new);
             }
-            Err(e) => errors.push(format!("install {}//{}: {e}", app.id, app.branch)),
+            Err(e) => {
+                errors.push(format!("install {}//{}: {e}", app.id, app.branch));
+                failed.push(FailedApp {
+                    id: app.id.clone(),
+                    branch: app.branch.clone(),
+                    error: e.to_string(),
+                });
+            }
         }
     }
 
@@ -126,7 +146,14 @@ pub fn reconcile(
         }
         match flatpak.uninstall(&id, &branch) {
             Ok(()) => installed.retain(|i| !i.is(&id, &branch)),
-            Err(e) => errors.push(format!("uninstall {id}//{branch}: {e}")),
+            Err(e) => {
+                errors.push(format!("uninstall {id}//{branch}: {e}"));
+                failed.push(FailedApp {
+                    id,
+                    branch,
+                    error: e.to_string(),
+                });
+            }
         }
     }
     // The agent manages only what it installed and is still there.
@@ -206,7 +233,10 @@ pub fn reconcile(
         }
     }
 
-    LastApply::from_errors(errors)
+    Applied {
+        last_apply: LastApply::new(errors, failed),
+        installed: installed_now,
+    }
 }
 
 /// System Flatpaks are updated at most this often (brief 22, U2).
@@ -215,15 +245,35 @@ pub const FLATPAK_UPDATE_S: u64 = 6 * 3600;
 /// `flatpak update`, then `flatpak uninstall --unused`, when the last run
 /// that succeeded is `FLATPAK_UPDATE_S` old. The agent calls it after
 /// `reconcile`, so it never runs during an install. A failed run is tried
-/// again at the next check-in. Returns the errors.
-pub fn update_flatpaks(managed: &mut Managed, flatpak: &dyn Flatpak, now: u64) -> Vec<String> {
+/// again at the next check-in. `apps` are the installed apps, for naming the
+/// one an update failed on.
+pub fn update_flatpaks(
+    managed: &mut Managed,
+    flatpak: &dyn Flatpak,
+    now: u64,
+    apps: &[App],
+) -> LastApply {
     // Either way round: a clock set back does not stop updates for good.
     if now.abs_diff(managed.flatpaks_updated) < FLATPAK_UPDATE_S {
-        return Vec::new();
+        return LastApply::default();
     }
     let mut errors = Vec::new();
+    let mut failed = Vec::new();
     if let Err(e) = flatpak.update() {
-        errors.push(format!("flatpak update: {e}"));
+        let detail = e.to_string();
+        // One update covers every app, and flatpak says which it failed on
+        // as "Failed to update <name>: …" (`flatpak-cli-transaction.c`,
+        // 1.18.4). A runtime, or an error with no name, names no app.
+        failed.extend(
+            apps.iter()
+                .filter(|a| detail.contains(&format!("Failed to update {}: ", a.id)))
+                .map(|a| FailedApp {
+                    id: a.id.clone(),
+                    branch: a.branch.clone(),
+                    error: detail.clone(),
+                }),
+        );
+        errors.push(format!("flatpak update: {detail}"));
     }
     if let Err(e) = flatpak.uninstall_unused() {
         errors.push(format!("flatpak uninstall --unused: {e}"));
@@ -231,7 +281,7 @@ pub fn update_flatpaks(managed: &mut Managed, flatpak: &dyn Flatpak, now: u64) -
     if errors.is_empty() {
         managed.flatpaks_updated = now;
     }
-    errors
+    LastApply::new(errors, failed)
 }
 
 #[cfg(test)]
@@ -266,6 +316,15 @@ mod tests {
         bc: &FakeBootc,
         managed: &mut Managed,
     ) -> LastApply {
+        run_all(desired, fp, bc, managed).last_apply
+    }
+
+    fn run_all(
+        desired: &Desired,
+        fp: &FakeFlatpak,
+        bc: &FakeBootc,
+        managed: &mut Managed,
+    ) -> Applied {
         let inv = Inventory {
             apps: fp.installed().unwrap(),
             remotes: fp.remotes().unwrap(),
@@ -640,30 +699,193 @@ mod tests {
         let mut managed = Managed::default();
 
         // Never updated: update, then remove what nothing uses.
-        assert!(update_flatpaks(&mut managed, &fp, T).is_empty());
+        assert!(update_flatpaks(&mut managed, &fp, T, &[]).errors.is_empty());
         assert_eq!(fp.log(), ["update", "uninstall --unused"]);
         assert_eq!(managed.flatpaks_updated, T);
 
         // Not again inside six hours.
         fp.clear_log();
-        assert!(update_flatpaks(&mut managed, &fp, T + FLATPAK_UPDATE_S - 1).is_empty());
+        assert!(
+            update_flatpaks(&mut managed, &fp, T + FLATPAK_UPDATE_S - 1, &[])
+                .errors
+                .is_empty()
+        );
         assert!(fp.log().is_empty(), "{:?}", fp.log());
 
         // A failure is reported, not recorded, and tried again next time.
         fp.fail_update(true);
         let later = T + FLATPAK_UPDATE_S;
-        let errors = update_flatpaks(&mut managed, &fp, later);
+        let errors = update_flatpaks(&mut managed, &fp, later, &[]).errors;
         assert_eq!(errors.len(), 1);
         assert!(errors[0].starts_with("flatpak update:"), "{errors:?}");
         assert_eq!(fp.log(), ["update", "uninstall --unused"]);
         assert_eq!(managed.flatpaks_updated, T);
         fp.fail_update(false);
-        assert!(update_flatpaks(&mut managed, &fp, later + 900).is_empty());
+        assert!(
+            update_flatpaks(&mut managed, &fp, later + 900, &[])
+                .errors
+                .is_empty()
+        );
         assert_eq!(managed.flatpaks_updated, later + 900);
 
         // A clock set back by more than the interval does not stop updates.
         fp.clear_log();
-        assert!(update_flatpaks(&mut managed, &fp, T - FLATPAK_UPDATE_S).is_empty());
+        assert!(
+            update_flatpaks(&mut managed, &fp, T - FLATPAK_UPDATE_S, &[])
+                .errors
+                .is_empty()
+        );
         assert_eq!(fp.log(), ["update", "uninstall --unused"]);
+    }
+
+    #[test]
+    fn a_failed_install_and_a_failed_removal_name_their_apps() {
+        let fp = FakeFlatpak::default();
+        fp.fail_install("org.broken.App");
+        fp.add_system(app("com.example.Stuck", "flathub"));
+        fp.fail_uninstall("com.example.Stuck");
+        let bc = FakeBootc::booted("img:stable");
+        let mut managed = Managed::default();
+        let desired = Desired {
+            image: None,
+            remotes: vec![remote("flathub")],
+            apps: vec![
+                want("org.broken.App", "flathub", AppState::Installed),
+                want("org.mozilla.firefox", "flathub", AppState::Installed),
+                want("com.example.Stuck", "flathub", AppState::Absent),
+            ],
+        };
+        let r = run(&desired, &fp, &bc, &mut managed);
+
+        // The text list is what it was.
+        assert_eq!(r.errors.len(), 2, "{:?}", r.errors);
+        assert!(r.errors[0].starts_with("install org.broken.App//stable:"));
+        assert!(r.errors[1].starts_with("uninstall com.example.Stuck//stable:"));
+
+        // And the apps are named, in the order they failed, with the cause
+        // alone and not the "install …:" prefix.
+        let named: Vec<(&str, &str)> = r
+            .failed
+            .iter()
+            .map(|f| (f.id.as_str(), f.branch.as_str()))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("org.broken.App", "stable"),
+                ("com.example.Stuck", "stable")
+            ]
+        );
+        assert!(
+            r.failed[0].error.contains("failed to download"),
+            "{:?}",
+            r.failed
+        );
+        assert!(r.failed[1].error.contains("is in use"), "{:?}", r.failed);
+        // The one that worked is not in it.
+        assert!(fp.system_has("org.mozilla.firefox"));
+        assert!(r.failed.iter().all(|f| f.id != "org.mozilla.firefox"));
+    }
+
+    #[test]
+    fn a_failure_that_is_not_an_app_is_an_error_without_a_failed_app() {
+        let fp = FakeFlatpak::default();
+        fp.add_system(app("org.mozilla.firefox", "flathub"));
+        fp.fail_grant(true);
+        let bc = FakeBootc::booted("img:stable");
+        let mut bad = remote("bad");
+        bad.gpg_key = "not base64!".into();
+        let desired = Desired {
+            image: Some(DesiredImage {
+                reference: "img:next".into(),
+            }),
+            remotes: vec![bad],
+            apps: vec![],
+        };
+        let r = run(&desired, &fp, &bc, &mut Managed::default());
+        assert_eq!(r.errors.len(), 2, "{:?}", r.errors);
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+    }
+
+    #[test]
+    fn what_was_installed_is_listed_and_what_failed_or_was_there_is_not() {
+        let fp = FakeFlatpak::default();
+        fp.fail_install("org.broken.App");
+        fp.add_system(app("org.kde.kate", "flathub"));
+        let bc = FakeBootc::booted("img:stable");
+        let mut managed = Managed::default();
+        let desired = Desired {
+            image: None,
+            remotes: vec![remote("flathub")],
+            apps: vec![
+                want("org.kde.kate", "flathub", AppState::Installed),
+                want("org.broken.App", "flathub", AppState::Installed),
+                want("org.mozilla.firefox", "flathub", AppState::Installed),
+                want("com.mauvely.compose", "flathub", AppState::Installed),
+            ],
+        };
+        let r = run_all(&desired, &fp, &bc, &mut managed);
+        assert_eq!(
+            r.installed,
+            [
+                app("org.mozilla.firefox", "flathub"),
+                app("com.mauvely.compose", "flathub")
+            ]
+        );
+
+        // The next pass has nothing to install.
+        assert!(
+            run_all(&desired, &fp, &bc, &mut managed)
+                .installed
+                .is_empty()
+        );
+
+        // An app the agent already manages, taken off by someone and put back
+        // by the agent, is installed again and listed again.
+        fp.uninstall("com.mauvely.compose", "stable").unwrap();
+        let r = run_all(&desired, &fp, &bc, &mut managed);
+        assert_eq!(r.installed, [app("com.mauvely.compose", "flathub")]);
+    }
+
+    #[test]
+    fn a_failed_update_names_an_installed_app_when_flatpak_does() {
+        const T: u64 = 1_760_400_000;
+        let apps = [
+            app("org.mozilla.firefox", "flathub"),
+            app("org.mozilla.firefox.Extra", "flathub"),
+            app("org.kde.kate", "flathub"),
+        ];
+        let update = |detail: &str| {
+            let fp = FakeFlatpak::default();
+            fp.fail_update_saying(detail);
+            update_flatpaks(&mut Managed::default(), &fp, T, &apps)
+        };
+
+        // The line flatpak prints for its first failed operation
+        // (`flatpak-cli-transaction.c`, "Failed to update %s: ").
+        let r = update(
+            "exit status: 1: Warning: Error pulling from repo\n\
+             error: Failed to update org.mozilla.firefox: Server returned status 503",
+        );
+        assert_eq!(r.errors.len(), 1);
+        assert_eq!(r.failed.len(), 1, "{:?}", r.failed);
+        assert_eq!(r.failed[0].id, "org.mozilla.firefox");
+        assert_eq!(r.failed[0].branch, "stable");
+        assert!(r.failed[0].error.contains("Server returned status 503"));
+
+        // An id that is the start of another's is not named by the other's.
+        let r = update("exit status: 1: error: Failed to update org.mozilla.firefox.Extra: no");
+        let ids: Vec<&str> = r.failed.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["org.mozilla.firefox.Extra"]);
+
+        // A runtime, or no name at all: an error, and no app to blame.
+        for detail in [
+            "exit status: 1: error: Failed to update org.freedesktop.Platform: no",
+            "exit status: 1: error: unable to load summary",
+        ] {
+            let r = update(detail);
+            assert_eq!(r.errors.len(), 1);
+            assert!(r.failed.is_empty(), "{detail}: {:?}", r.failed);
+        }
     }
 }

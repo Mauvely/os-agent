@@ -34,7 +34,8 @@ struct FlatpakState {
     user: Vec<App>,
     remotes: Vec<Remote>,
     failing: Vec<String>,
-    update_fails: bool,
+    failing_uninstall: Vec<String>,
+    update_fails: Option<String>,
     grant_fails: bool,
     log: Vec<String>,
 }
@@ -60,8 +61,15 @@ impl FakeFlatpak {
     pub fn fail_install(&self, id: &str) {
         self.0.borrow_mut().failing.push(id.into());
     }
+    pub fn fail_uninstall(&self, id: &str) {
+        self.0.borrow_mut().failing_uninstall.push(id.into());
+    }
     pub fn fail_update(&self, fails: bool) {
-        self.0.borrow_mut().update_fails = fails;
+        self.0.borrow_mut().update_fails = fails.then(|| "error: unable to load summary".into());
+    }
+    /// `flatpak update` fails with `detail` as its error.
+    pub fn fail_update_saying(&self, detail: &str) {
+        self.0.borrow_mut().update_fails = Some(detail.into());
     }
     pub fn fail_grant(&self, fails: bool) {
         self.0.borrow_mut().grant_fails = fails;
@@ -157,6 +165,9 @@ impl Flatpak for FakeFlatpak {
     fn uninstall(&self, id: &str, branch: &str) -> Result<(), Error> {
         let mut s = self.0.borrow_mut();
         s.log.push(format!("uninstall {id}//{branch}"));
+        if s.failing_uninstall.iter().any(|f| f == id) {
+            return Err(fail(format!("error: {id} is in use")));
+        }
         let before = s.system.len();
         s.system.retain(|a| !a.is(id, branch));
         if s.system.len() == before {
@@ -168,8 +179,8 @@ impl Flatpak for FakeFlatpak {
     fn update(&self) -> Result<(), Error> {
         let mut s = self.0.borrow_mut();
         s.log.push("update".into());
-        if s.update_fails {
-            return Err(fail("error: unable to load summary".into()));
+        if let Some(detail) = &s.update_fails {
+            return Err(fail(detail.clone()));
         }
         Ok(())
     }
