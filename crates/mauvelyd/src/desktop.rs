@@ -6,7 +6,8 @@
 //!   Since kdedefaults and the person's own files come later, a key that has
 //!   to hold is marked immutable, KDE Kiosk's `[$i]`;
 //! - `policy.json`, for mauvely-session, which applies the preset once for
-//!   each `version`.
+//!   each `version`, and puts people's panels back to the preset's for each
+//!   `panels_version`.
 //!
 //! The directory is root's and everyone's to read, as both files are.
 //!
@@ -79,6 +80,10 @@ pub struct Policy {
     /// `None` leaves the image's default alone.
     pub preset: Option<Preset>,
     pub lock: Locks,
+    /// Moves when the admin resets everyone's panels to the preset's. A
+    /// server from before it sends none: 0.
+    #[serde(default)]
+    pub panels_version: u64,
 }
 
 impl Policy {
@@ -199,6 +204,7 @@ mod tests {
             version: 3,
             preset,
             lock: Locks { look, layout },
+            panels_version: 0,
         }
     }
 
@@ -219,11 +225,14 @@ mod tests {
                 lock: Locks {
                     look: true,
                     layout: false
-                }
+                },
+                panels_version: 0,
             }
         );
         let none = json!({"preset": null, "lock": {"look": false, "layout": false}, "version": 0});
         assert_eq!(Policy::from_answer(&none).unwrap().preset, None);
+        let reset = json!({"preset": "plasma", "lock": {"look": false, "layout": true}, "version": 2, "panels_version": 5});
+        assert_eq!(Policy::from_answer(&reset).unwrap().panels_version, 5);
 
         for bad in [
             json!({"preset": "classic", "lock": {"look": false, "layout": false}, "version": 1}),
@@ -329,7 +338,7 @@ mod tests {
             serde_json::from_slice(&fs::read(dir.join("policy.json")).unwrap()).unwrap();
         assert_eq!(
             written,
-            json!({"version": 3, "preset": "mauvely", "lock": {"look": true, "layout": true}})
+            json!({"version": 3, "preset": "mauvely", "lock": {"look": true, "layout": true}, "panels_version": 0})
         );
         assert_eq!(mode(&dir), 0o755);
         assert_eq!(mode(&dir.join("xdg")), 0o755);
@@ -355,6 +364,20 @@ mod tests {
             fs::read_to_string(dir.join("policy.json"))
                 .unwrap()
                 .contains("\"version\":4")
+        );
+
+        // So does a reset of the panels, which changes nothing in Kiosk.
+        let reset = Policy {
+            panels_version: 1,
+            ..again.clone()
+        };
+        let before = fs::read(&kdeglobals).unwrap();
+        assert!(apply(&dir, &reset).unwrap());
+        assert_eq!(fs::read(&kdeglobals).unwrap(), before);
+        assert!(
+            fs::read_to_string(dir.join("policy.json"))
+                .unwrap()
+                .contains("\"panels_version\":1")
         );
     }
 

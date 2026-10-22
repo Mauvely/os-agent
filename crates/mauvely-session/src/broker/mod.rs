@@ -433,9 +433,9 @@ impl Broker {
             let closed = self.closed.swap(false, Ordering::SeqCst);
             match self.accounts.poll(&started.device_code) {
                 Poll::Done(minted) => {
-                    let email = minted.email.clone();
+                    let shown_as = minted.shown_as.clone();
                     self.adopt(OsSession::new(minted, self.accounts.origin()));
-                    return Ok(email);
+                    return Ok(shown_as);
                 }
                 Poll::Stop(code) => return Err(Link::Ended(code)),
                 _ if closed => return Err(Link::Ended("closed".into())),

@@ -56,6 +56,10 @@ pub struct Minted {
     /// Unix seconds.
     pub expires_at: u64,
     pub email: String,
+    /// Who the person is, to show them: their handle when the email is a
+    /// provisioned account's placeholder (`<handle>@handle.mauvely.invalid`),
+    /// otherwise the email. website-main's `displayIdentity`.
+    pub shown_as: String,
 }
 
 impl fmt::Debug for Minted {
@@ -64,6 +68,7 @@ impl fmt::Debug for Minted {
             .field("token", &"<redacted>")
             .field("expires_at", &self.expires_at)
             .field("email", &self.email)
+            .field("shown_as", &self.shown_as)
             .finish()
     }
 }
@@ -256,15 +261,21 @@ fn minted(body: &str) -> Option<Minted> {
     let v: Value = serde_json::from_str(body).ok()?;
     let token = v.get("token")?.as_str()?;
     let expires_at = v.get("expiresAt")?.as_u64().filter(|t| *t > 0)?;
-    let email = v
-        .get("user")
-        .and_then(|u| u.get("email"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let user = v.get("user");
+    let field = |name: &str| user.and_then(|u| u.get(name));
+    let email = field("email").and_then(Value::as_str).unwrap_or_default();
+    // The flag, as website-main records it, rather than the domain: two
+    // definitions of one fact could disagree.
+    let placeholder = field("emailIsPlaceholder").and_then(Value::as_bool) == Some(true);
+    let shown_as = match field("handle").and_then(Value::as_str) {
+        Some(handle) if placeholder && !handle.is_empty() => format!("@{handle}"),
+        _ => email.to_owned(),
+    };
     plain(token).then(|| Minted {
         token: token.to_owned(),
         expires_at,
         email: email.to_owned(),
+        shown_as,
     })
 }
 
@@ -388,6 +399,7 @@ mod tests {
             token: "tok_abc".into(),
             expires_at: 1_771_200_000,
             email: "ada@example.com".into(),
+            shown_as: "ada@example.com".into(),
         }
     }
 
@@ -579,6 +591,31 @@ mod tests {
             start_outcome(502, "", ORIGIN).err().as_deref(),
             Some("HTTP 502")
         );
+    }
+
+    #[test]
+    fn a_provisioned_person_is_shown_by_handle() {
+        let placeholder = r#"{"token":"tok_abc","expiresAt":1771200000,"user":{"id":"usr_2",
+            "email":"timur.suez@handle.mauvely.invalid","handle":"timur.suez",
+            "emailIsPlaceholder":true}}"#;
+        let Poll::Done(m) = poll_outcome(200, placeholder) else {
+            panic!("not done")
+        };
+        assert_eq!(m.shown_as, "@timur.suez");
+        // The apps are still given the address the account holds.
+        assert_eq!(m.email, "timur.suez@handle.mauvely.invalid");
+
+        // A mailbox, or a server from before the flag: the email.
+        let mailbox = r#"{"token":"t","expiresAt":1,"user":{"email":"ada@example.com",
+            "handle":"ada","emailIsPlaceholder":false}}"#;
+        let Poll::Done(m) = poll_outcome(200, mailbox) else {
+            panic!("not done")
+        };
+        assert_eq!(m.shown_as, "ada@example.com");
+        let Poll::Done(m) = poll_outcome(200, OK) else {
+            panic!("not done")
+        };
+        assert_eq!(m.shown_as, "ada@example.com");
     }
 
     #[test]
