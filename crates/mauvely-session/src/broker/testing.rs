@@ -11,7 +11,7 @@ use super::accounts::Accounts;
 use super::caller::{Caller, Sandbox};
 use super::seal::tests::{FakeSeal, temp_dir};
 use super::seal::{OsSession, Store};
-use super::{Broker, Clock, Desktop, LoginSession, NoLoginSession};
+use super::{Broker, Clock, Desktop, LoginSession};
 use crate::Error;
 
 /// The fake clock's start.
@@ -258,7 +258,7 @@ impl Fixture {
                 s.origin = s.origin.replace("{BASE}", &server.base);
                 Box::new(FakeLogin(Some(s)))
             }
-            None => Box::new(NoLoginSession),
+            None => Box::new(FakeLogin(None)),
         };
         let desktop = Arc::new(FakeDesktop::default());
         let clock = Arc::new(FakeClock(AtomicU64::new(NOW)));

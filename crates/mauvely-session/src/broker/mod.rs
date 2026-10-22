@@ -10,10 +10,12 @@
 //! | `wire` | Suite's framing, the requests and the answers |
 //! | `accounts` | website-main: the device link, the mints, `/api/auth/me` |
 //! | `seal` | The `os` session at rest, through `systemd-creds --user` |
+//! | `login` | The `os` session the person's login made, from `mauvelyd` |
 //! | `socket` | The socket, its directory, and one thread per caller |
 
 pub mod accounts;
 pub mod caller;
+pub mod login;
 pub mod peer;
 pub mod seal;
 pub mod socket;
@@ -54,20 +56,11 @@ pub trait Desktop: Send + Sync {
 }
 
 /// Milestone 2's seam: the `os` session the person's login produced, if it
-/// produced one. Once accounts come from the enterprise, signing in to the
-/// computer signs it in to Mauvely, and only a purely local account is ever
+/// produced one (`login::HandOff`). Signing in to the computer with a Mauvely
+/// account signs it in to Mauvely, and only a purely local account is ever
 /// offered the sign-in window. `docs/broker.md`, "Milestone 2".
 pub trait LoginSession: Send + Sync {
     fn session(&self) -> Option<OsSession>;
-}
-
-/// Milestone 1: no login produces a session, so linking is always offered.
-pub struct NoLoginSession;
-
-impl LoginSession for NoLoginSession {
-    fn session(&self) -> Option<OsSession> {
-        None
-    }
 }
 
 /// Time, so tests need not wait for it.
@@ -160,11 +153,23 @@ impl Broker {
         }
     }
 
-    /// Reads the stored `os` session. With none, or one that has expired, a
-    /// link is to be offered. A file that does not unseal is kept, in case
-    /// that is passing, and a link is offered all the same.
+    /// Takes the login's `os` session, or reads the stored one. With neither,
+    /// or one that has expired, a link is to be offered. A file that does not
+    /// unseal is kept, in case that is passing, and a link is offered all the
+    /// same.
     pub fn load(&self) {
         let mut os = lock(&self.os);
+        // The login's first: it is the newest, and the login revoked the one
+        // the last login on this computer made. Sealed as a link's is, it
+        // replaces whatever was stored.
+        if let Some(s) = self.login_session() {
+            eprintln!("mauvely-session: broker: signed in by the login");
+            if let Err(e) = self.store.save(&s) {
+                eprintln!("mauvely-session: broker: kept for this login only: {e}");
+            }
+            *os = Some(s);
+            return;
+        }
         match self.store.load() {
             // Linked to another accounts service: /etc/mauvely/server
             // changed. Its token is not sent to this one.
@@ -192,18 +197,11 @@ impl Broker {
             Ok(None) => {}
             Err(e) => eprintln!("mauvely-session: broker: {e}"),
         }
-        // Before anything is shown: a session the login made needs no link.
-        if let Some(s) = self.login_session() {
-            eprintln!("mauvely-session: broker: signed in by the login");
-            *os = Some(s);
-            return;
-        }
         self.offer_wanted.store(true, Ordering::SeqCst);
     }
 
     /// The login's session, when it is for this accounts origin and has not
-    /// expired. Held for this login only: whether a login's session is
-    /// sealed like a linked one is milestone 2's to decide.
+    /// expired.
     fn login_session(&self) -> Option<OsSession> {
         let s = self.login.session()?;
         if s.origin != self.accounts.origin() || s.expires_at <= self.clock.now() {

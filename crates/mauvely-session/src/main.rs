@@ -35,7 +35,7 @@ use zbus::zvariant::{OwnedObjectPath, Value};
 
 use broker::accounts::{self, Accounts};
 use broker::seal::{Store, SystemdCreds};
-use broker::{Broker, NoLoginSession, RealClock, peer, socket};
+use broker::{Broker, RealClock, login, peer, socket};
 use dialog::{Answer, Dialogs};
 use signin::{Ended, Signin};
 
@@ -368,8 +368,8 @@ fn start_broker(
             hostname(),
             Box::new(desktop),
             Box::new(RealClock),
-            // Milestone 2's login fills this.
-            Box::new(NoLoginSession),
+            // The session a Mauvely login made, which mauvelyd hands over.
+            Box::new(login::HandOff::for_me()),
         ));
         broker.load();
         let serving = Arc::clone(&broker);

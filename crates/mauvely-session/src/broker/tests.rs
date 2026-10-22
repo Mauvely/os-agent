@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use super::seal::OsSession;
 use super::testing::*;
-use super::{Clock, LoginSession, NoLoginSession, stale_after};
+use super::{Clock, LoginSession, stale_after};
 
 const COMPOSE: &str = r#"{"v":1,"op":"token","client":"compose"}"#;
 const BROWSER: &str = r#"{"v":1,"op":"browser"}"#;
@@ -605,8 +605,8 @@ fn login_session(origin: &str, lifetime: u64) -> OsSession {
 }
 
 #[test]
-fn today_no_login_produces_a_session() {
-    assert!(NoLoginSession.session().is_none());
+fn without_a_login_session_or_a_link_the_link_is_offered() {
+    assert!(FakeLogin(None).session().is_none());
     let f = Fixture::new(vec![]);
     f.broker.offer_if_wanted();
     assert_eq!(f.offers(), 1);
@@ -625,8 +625,33 @@ fn a_session_from_the_login_needs_no_link() {
     granted(&f.ask(&compose(), COMPOSE), "tok_compose");
     let reqs = f.requests();
     assert_eq!(reqs[0].header("Authorization"), Some("Bearer tok_login"));
-    // Held for this login, not sealed: that is milestone 2's to decide.
-    assert!(f.stored().is_none());
+    // Sealed as a linked session is, for the next start of the helper.
+    assert_eq!(f.stored().unwrap().token, "tok_login");
+}
+
+#[test]
+fn a_session_from_the_login_replaces_the_stored_one() {
+    // The login revoked the one the last login made here, so the stored
+    // session is the older, and the login's is used and kept.
+    let stored = OsSession {
+        token: OS_TOKEN.into(),
+        expires_at: NOW + 86_400,
+        email: "ada@example.com".into(),
+        origin: "{BASE}".into(),
+    };
+    let mut f = Fixture::with_login(
+        vec![(200, Fixture::minted("tok_compose", 3600))],
+        Some(stored),
+        Some(login_session("{BASE}", 3600)),
+    );
+    f.broker.offer_if_wanted();
+    assert_eq!(f.offers(), 0);
+    granted(&f.ask(&compose(), COMPOSE), "tok_compose");
+    assert_eq!(
+        f.requests()[0].header("Authorization"),
+        Some("Bearer tok_login")
+    );
+    assert_eq!(f.stored().unwrap().token, "tok_login");
 }
 
 #[test]
@@ -635,10 +660,31 @@ fn a_login_session_for_another_server_or_expired_is_not_taken() {
         login_session("https://other.example", 3600),
         login_session("{BASE}", 0),
     ] {
-        let mut f = Fixture::with_login(vec![], None, Some(login));
+        let mut f = Fixture::with_login(vec![], None, Some(login.clone()));
         f.broker.offer_if_wanted();
         assert_eq!(f.offers(), 1);
         refused(&f.ask(&compose(), COMPOSE), "signed_out");
         assert!(f.requests().is_empty());
+        assert!(f.stored().is_none());
+
+        // And a stored session is still used.
+        let stored = OsSession {
+            token: OS_TOKEN.into(),
+            expires_at: NOW + 86_400,
+            email: "ada@example.com".into(),
+            origin: "{BASE}".into(),
+        };
+        let mut f = Fixture::with_login(
+            vec![(200, Fixture::minted("tok_compose", 3600))],
+            Some(stored),
+            Some(login),
+        );
+        f.broker.offer_if_wanted();
+        assert_eq!(f.offers(), 0);
+        granted(&f.ask(&compose(), COMPOSE), "tok_compose");
+        assert_eq!(
+            f.requests()[0].header("Authorization"),
+            Some(format!("Bearer {OS_TOKEN}").as_str())
+        );
     }
 }
