@@ -6,7 +6,7 @@ use mauvelyd::bootc::SystemBootc;
 use mauvelyd::creds::SystemdCreds;
 use mauvelyd::flatpak::SystemFlatpak;
 use mauvelyd::state::{self, Device, Paths, Status};
-use mauvelyd::{AGENT_VERSION, api, facts};
+use mauvelyd::{AGENT_VERSION, api, facts, push};
 
 const USAGE: &str = "usage: mauvelyd run | enrol | status | --version
 
@@ -56,7 +56,13 @@ fn main() -> ExitCode {
 
 fn run(paths: &Paths, host: Host) -> Result<(), mauvelyd::Error> {
     eprintln!("mauvelyd {AGENT_VERSION} starting");
-    agent::run(paths, host, &facts::collect, &mut std::thread::sleep)?;
+    agent::run(
+        paths,
+        host,
+        &facts::collect,
+        &mut std::thread::sleep,
+        &mut push::start,
+    )?;
     // Revoked. Stay up and idle, so systemd does not restart us into
     // checking in again; the machine is left as it is.
     loop {

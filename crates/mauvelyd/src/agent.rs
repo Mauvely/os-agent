@@ -13,6 +13,7 @@ use crate::creds::Creds;
 use crate::desktop::{self, Policy};
 use crate::facts::Facts;
 use crate::flatpak::Flatpak;
+use crate::push::{self, Wake, Woke};
 use crate::reconcile::{Inventory, reconcile, update_flatpaks};
 use crate::schedule::{self, Backoff};
 use crate::state::{self, Device, Managed, Paths, Status};
@@ -90,8 +91,11 @@ pub fn enrol(paths: &Paths, host: &Host, facts: &Facts) -> Result<Enrolment, Err
 /// What one check-in led to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Tick {
-    /// Check in again after this long.
+    /// Checked in. Check in again after this long, or sooner when pushed.
     Sleep(Duration),
+    /// The check-in failed. Try again after this long, and not sooner: a
+    /// push does not cut a backoff short.
+    Retry(Duration),
     /// The server revoked this device. Stop checking in.
     Revoked,
 }
@@ -105,6 +109,7 @@ enum Outcome {
 pub struct Agent<'a> {
     paths: Paths,
     host: Host<'a>,
+    server: String,
     client: Client,
     key: SigningKey,
     device: Device,
@@ -127,6 +132,7 @@ impl<'a> Agent<'a> {
         let managed = state::read_json::<Managed>(&paths.managed())?.unwrap_or_default();
         Ok(Agent {
             client: Client::new(&server),
+            server,
             key: SigningKey::from_bytes(&seed),
             paths,
             host,
@@ -139,6 +145,15 @@ impl<'a> Agent<'a> {
 
     pub fn device(&self) -> &Device {
         &self.device
+    }
+
+    /// What the push channel connects with: this server, as this device.
+    pub fn push_config(&self) -> push::Config {
+        push::Config {
+            server: self.server.clone(),
+            device: self.device.device_id.clone(),
+            key: self.key.clone(),
+        }
     }
 
     /// Checks in once, reconciles, and says when to come back.
@@ -155,7 +170,7 @@ impl<'a> Agent<'a> {
             Err(e) => {
                 let wait = schedule::jitter(self.backoff.fail());
                 eprintln!("check-in failed: {e}; retrying in {}s", wait.as_secs());
-                Tick::Sleep(wait)
+                Tick::Retry(wait)
             }
         }
     }
@@ -251,11 +266,17 @@ impl<'a> Agent<'a> {
 
 /// The service: enrols, retrying with backoff, then checks in until the
 /// device is revoked. Returns only on revocation or a fatal error.
+///
+/// `sleep` waits between enrolment attempts. Once enrolled, `channel` starts
+/// the push channel (`push::start` in the service) and the check-in loop
+/// sleeps on what it returns, so a push checks in now. A channel that never
+/// connects leaves the loop on its interval, as it was before pushes.
 pub fn run(
     paths: &Paths,
     host: Host,
     facts: &dyn Fn() -> Facts,
     sleep: &mut dyn FnMut(Duration),
+    channel: &mut dyn FnMut(push::Config) -> Wake,
 ) -> Result<(), Error> {
     let mut backoff = Backoff::default();
     let mut said_no_token = false;
@@ -281,9 +302,17 @@ pub fn run(
         "device {} in {}, checking in",
         agent.device.device_id, agent.device.org_slug
     );
+    let mut wake = channel(agent.push_config());
     loop {
         match agent.tick() {
-            Tick::Sleep(d) => sleep(d),
+            Tick::Sleep(d) => {
+                if wake.wait(d, true) == Woke::Nudged {
+                    eprintln!("told to check in now");
+                }
+            }
+            Tick::Retry(d) => {
+                wake.wait(d, false);
+            }
             Tick::Revoked => {
                 eprintln!("this device has been revoked; no longer checking in");
                 return Ok(());
@@ -835,19 +864,23 @@ mod tests {
         )
         .unwrap();
 
-        let secs = |t: Tick| match t {
-            Tick::Sleep(d) => d.as_secs_f64(),
-            Tick::Revoked => panic!("revoked"),
+        let retry = |t: Tick| match t {
+            Tick::Retry(d) => d.as_secs_f64(),
+            t => panic!("{t:?}"),
         };
-        let a = secs(agent.tick());
-        let b = secs(agent.tick());
+        let a = retry(agent.tick());
+        let b = retry(agent.tick());
         // A 403 that is not `revoked` is a failure, not a revocation.
-        let c = secs(agent.tick());
+        let c = retry(agent.tick());
         assert!((54.0..=66.0).contains(&a), "{a}");
         assert!((108.0..=132.0).contains(&b), "{b}");
         assert!((216.0..=264.0).contains(&c), "{c}");
-        // interval_s 30 is floored to 60.
-        let d = secs(agent.tick());
+        // interval_s 30 is floored to 60, and a success is a Sleep, which a
+        // push may cut short.
+        let d = match agent.tick() {
+            Tick::Sleep(d) => d.as_secs_f64(),
+            t => panic!("{t:?}"),
+        };
         assert!((54.0..=66.0).contains(&d), "{d}");
         assert_eq!(server.requests().len(), 4);
 
@@ -863,7 +896,7 @@ mod tests {
             },
         )
         .unwrap();
-        let e = secs(agent.tick());
+        let e = retry(agent.tick());
         assert!((54.0..=66.0).contains(&e), "{e}");
     }
 
@@ -886,7 +919,12 @@ mod tests {
         };
 
         let mut sleeps = Vec::new();
-        run(&paths, host, &facts, &mut |d| sleeps.push(d)).unwrap();
+        let mut channels = 0;
+        run(&paths, host, &facts, &mut |d| sleeps.push(d), &mut |_| {
+            channels += 1;
+            Wake::new(std::sync::mpsc::channel().1)
+        })
+        .unwrap();
 
         // One backoff after the refusal; none after the revocation.
         assert_eq!(sleeps.len(), 1);
@@ -907,5 +945,53 @@ mod tests {
         // Revoked: the machine is left as it is.
         assert!(fp.log().is_empty());
         assert!(fp.system_has("org.kde.kate"));
+        // The push channel started once, after enrolment.
+        assert_eq!(channels, 1);
+    }
+
+    #[test]
+    fn a_push_checks_in_at_once_and_the_channel_is_this_device() {
+        let ok = r#"{"device_id":"dev_1","desired":{"image":null,"remotes":[],"apps":[]},"interval_s":900}"#;
+        let server = FakeServer::start(vec![
+            (200, ok.into()),
+            (200, ok.into()),
+            (403, r#"{"error":"revoked"}"#.into()),
+        ]);
+        let dir = TempDir::new();
+        let (paths, key) = enrolled(&dir, &server.base);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        let host = Host {
+            flatpak: &fp,
+            bootc: &bc,
+            creds: &FakeCreds,
+        };
+
+        // A server that pushes every 20 ms until nobody listens.
+        let mut config = None;
+        let started = std::time::Instant::now();
+        run(&paths, host, &facts, &mut |_| unreachable!(), &mut |c| {
+            config = Some(c);
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                while tx.send(crate::push::Push::CheckIn).is_ok() {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            });
+            Wake::with_floor(rx, Duration::from_millis(100))
+        })
+        .unwrap();
+
+        // Three check-ins on a 900 s interval, each pushed, none closer than
+        // the floor.
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(200) && took < Duration::from_secs(5),
+            "{took:?}"
+        );
+        let server_base = server.base.clone();
+        assert_eq!(server.requests().len(), 3);
+        let c = config.unwrap();
+        assert_eq!((c.server, c.device.as_str()), (server_base, "dev_1"));
+        assert_eq!(c.key.to_bytes(), key.to_bytes());
     }
 }

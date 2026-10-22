@@ -7,6 +7,18 @@ The design and the frozen agent API (enrolment, signed check-ins) are in brief
 19: `Website/website-internal/docs/launch/plans/19-mauvely-os.md` in the
 Mauvely superproject.
 
+**One v2 path sits beside v1: the push channel, `GET /api/agent/v2/socket`**
+(2026-10-22). A WebSocket to the device's Durable Object in website-devices,
+signed as a check-in is, over `GET`, that path and an empty body. The agent
+sends the text `ping` every 45 s and expects `pong`; the server sends
+`{"t":"checkin"}`, which checks in now. Unknown types are ignored, so the
+server may add them (brief 27 will). 403 `revoked` stops the channel until a
+restart, 404 or 426 means a server without it (asked hourly), and the server
+closes with 4000 when a newer connection replaces this one and 4003 on a
+revoke. website-devices' `CLAUDE.md` has the server side. **The channel is an
+optimisation:** if it never connects, the agent checks in on its interval
+exactly as before.
+
 - **The server side** is `Website/website-devices`.
 - **The signing vectors** in `tests/vectors/` are shared with it. Change both
   sides together.
@@ -31,6 +43,7 @@ A Cargo workspace with two crates:
 | `reconcile` | Brief 19's reconcile rules, as one function over the traits, and brief 22's Flatpak updates |
 | `desktop` | Brief 25's desktop policy as KDE Kiosk files in `/var/lib/mauvely-desktop/` (`xdg/kdeglobals`, which the image puts in `XDG_CONFIG_DIRS`, and `policy.json` for mauvely-session) |
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
+| `push` | The push channel: one thread on a blocking `tungstenite` socket (TLS is rustls on ring with webpki-roots, as `ureq`), reconnecting on `schedule`'s backoff, and `Wake`, what `run` sleeps on: its interval, cut short by `{"t":"checkin"}` but never within 5 s of the last check-in, and never during a backoff |
 | `state`, `facts`, `schedule` | Files on disk (`/etc/mauvely`, `/var/lib/mauvely`, and `/run/mauvely/installed.json`, which everyone reads), hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
 
@@ -83,6 +96,11 @@ A Cargo workspace with two crates:
   `cargo fmt`-formatted.
 - **No async runtime.** It is one loop, and it blocks. `mauvely-session` uses
   zbus's blocking API, which runs zbus's own executor thread; no tokio.
+  `mauvelyd`'s push channel is one more blocking thread, with a read timeout.
+- **One TLS stack: rustls with `ring` and the compiled-in `webpki-roots`.**
+  `ureq` and the push channel share it. Never aws-lc or native-tls: check
+  `cargo tree -i aws-lc-rs` (and `-i openssl-sys`) finds nothing after adding
+  a crate.
 - **`mauvely-session` runs as the person, never as root.** It changes nothing
   on the machine but its own files in `$XDG_STATE_HOME/mauvely/` and its
   socket in `$XDG_RUNTIME_DIR/mauvely/`, asks logind for a reboot only when

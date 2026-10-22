@@ -12,6 +12,7 @@ pub mod creds;
 pub mod desktop;
 pub mod facts;
 pub mod flatpak;
+pub mod push;
 pub mod reconcile;
 pub mod schedule;
 pub mod signing;

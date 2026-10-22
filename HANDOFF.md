@@ -1,5 +1,98 @@
 # Handoff
 
+## 2026-10-22, night: the push channel
+
+`mauvelyd` keeps one WebSocket to its Durable Object in website-devices, so a
+console change makes it check in at once (`push`). The server side is
+website-devices `1766db3`, on its `staging` (not yet production). `cargo test`
+passes, clippy and fmt are clean, `cargo build --release --locked` builds.
+`agent.ref` in os-image is not touched.
+
+### What it does
+
+- **`push::start`** runs one thread: connect to `wss://<server>/api/agent/v2/socket`
+  (`ws://` for an `http://` server) with the `X-Mauvely-*` headers from
+  `signing`, over `GET` and an empty body; text `ping` every 45 s; dead after
+  90 s of hearing nothing; `{"t":"checkin"}` goes into an `mpsc`.
+- **`agent::run` sleeps on `push::Wake`** instead of `sleep`: `recv_timeout`
+  on that channel. A push ends a wait after a successful check-in, but never
+  sooner than 5 s after it (`NUDGE_FLOOR`), and pushes meanwhile are one. After
+  a failed check-in (`Tick::Retry`, new) the backoff is waited whole and pushes
+  are dropped. A channel that has ended makes every wait a plain sleep.
+- **Reconnecting:** `schedule::Backoff` with jitter, reset by each successful
+  upgrade, so a dropped connection redials in about 60 s. 404 or 426 is a
+  server without the channel: asked again in about an hour, and the interval
+  loop carries on exactly as before. 403 stops the thread until a restart.
+- **Dependencies:** `tungstenite` 0.30 with `handshake` only, plus `rustls`
+  (`ring`, `std`, `tls12`) and `webpki-roots`, the crates and provider `ureq`
+  already pulls in. New to `Cargo.lock`: `tungstenite`, `sha1`,
+  `data-encoding`. No aws-lc, openssl, native-tls or tokio anywhere in the
+  workspace (`cargo tree -i` finds none). TLS is done here, not by
+  tungstenite's TLS features, so the provider is passed explicitly and no
+  process-wide default is needed.
+
+### Decisions the brief did not make
+
+- **When a 403 means revoked.** The check-in needs the body to say `revoked`.
+  An upgrade's body is only what arrived with the headers (tungstenite's
+  handshake keeps that tail), so here a 403 is revoked when the body says
+  `revoked` **or there is no body**; a 403 naming another error, or an HTML
+  block page, backs off like any failure.
+- **Close codes are only logged.** 4003 (revoked) does not stop the thread;
+  its reconnect is answered 403, which does. One authority for "stop".
+- **The floor counts from the end of a check-in**, not its start, so a push
+  that arrives during a long reconcile checks in 5 s after it.
+- **Unknown messages are logged in debug builds only** (there is no log level
+  here), up to 80 characters; `pong` never.
+- **Messages are capped at 64 KiB** (`WebSocketConfig`); the server sends a
+  few bytes.
+
+### Verified how
+
+- Loopback tests with tungstenite's server side: the upgrade's headers and
+  signature (the message rebuilt from the brief, empty-body hash written out),
+  a fresh nonce per attempt; `checkin` passed on and other types, non-JSON and
+  binary ignored; pings answered keep it open past three dead intervals, and
+  silence is noticed and redialled; 403 revoked and 403 with no body stop it,
+  403 with another error or HTML backs off; 404 and 426 wait about an hour;
+  backoff doubles and a connection resets it; nobody listening ends it;
+  `https` speaks TLS. `Wake`: the floor, a push after the floor wakes at once,
+  pushes coalesce, a backoff is not cut short, a wait is never longer than
+  asked, an ended channel sleeps. `agent::run`: pushes check in on a 900 s
+  interval within the floor, and the channel gets this device's server, id
+  and key.
+- Each guard broken once, and a test failed for each: the floor, the
+  backoff rule, dead detection, pong as liveness, the 403 rule, 426, the
+  backoff reset, protocol Pings instead of text, signing as POST or with a
+  body, every message a push, the unwanted check. **Not caught by a test:**
+  a `Wake` that kept spinning on a disconnected channel instead of dropping it
+  (it still waits the right time, burning CPU); and `run` passing `Retry`
+  waits as nudgeable (the glue is two lines; `Wake` itself is tested).
+- **Against a real Worker:** website-devices under `wrangler dev` on a scratch
+  store, driven by a scratch harness (session scratchpad, not committed) that
+  runs this crate's `push::run`. workerd accepted the Rust signatures; two
+  devices in a collection were each told of an assigned app, a desktop change
+  and an unassignment, the moved one of its move, nobody of a rename; a
+  second connection closed the first with 4000; the revoked one was told,
+  closed with 4003, refused 403 on its reconnect and stopped. Against
+  production (no route yet) it got 404 over real TLS through Cloudflare, with
+  ring and the compiled-in roots, and waited an hour.
+- **Against staging** (`devices.mauvely.dev`, website-devices `1766db3`), with
+  a test device row written into the staging D1 and removed after: connected
+  over TLS through Cloudflare, held up past its silence limit by `pong` alone,
+  replaced with 4000, then refused 403 once the row was revoked and stopped;
+  an unknown id got 401 and backed off.
+
+### Never run
+
+- The real `mauvelyd` with this code on a machine, under
+  `dist/mauvelyd.service`'s sandbox (`RestrictAddressFamilies` already allows
+  `AF_INET`/`AF_INET6`). No image carries it yet.
+- A nudge reaching a device through the console's forwarder, and a staging
+  deploy's sockets dropping and the fleet redialling.
+- A laptop suspending with the socket open: the read timeout and the 90 s
+  dead check should notice on resume, and nothing has shown it.
+
 ## 2026-10-22, later: the desktop policy (brief 25, phase 3)
 
 `mauvelyd` writes a collection's desktop policy as KDE Kiosk files, and

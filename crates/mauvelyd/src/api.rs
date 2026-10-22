@@ -1,4 +1,5 @@
-//! The agent API v1: the wire types and a signed blocking client.
+//! The agent API v1: the wire types and a signed blocking client. The push
+//! channel's upgrade, the one v2 path, is `push`'s.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -11,6 +12,8 @@ use crate::signing;
 
 pub const ENROL_PATH: &str = "/api/agent/v1/enrol";
 pub const CHECKIN_PATH: &str = "/api/agent/v1/checkin";
+/// The push channel's WebSocket upgrade, signed as a `GET` with no body.
+pub const SOCKET_PATH: &str = "/api/agent/v2/socket";
 
 #[derive(Debug, Serialize)]
 pub struct EnrolRequest<'a> {
