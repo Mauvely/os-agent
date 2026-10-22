@@ -1,0 +1,37 @@
+[Unit]
+Description=Mauvely sign-in service
+Documentation=https://github.com/Mauvely/os-agent
+# pam_mauvely asks it, so it is there before the login screen, and never
+# waits for the network: an offline sign-in is what the cache is for, and the
+# agent's own unit waits for network-online.target.
+Before=display-manager.service
+# Unprovisioned machines (no installer run) have no Mauvely accounts.
+ConditionPathExists=/etc/mauvely/server
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/mauvelyd login
+# Nobody signs in while it is down; it comes straight back.
+Restart=always
+RestartSec=1s
+# Shared with mauvelyd.service, which sets the same: the socket and the
+# hand-off are in /run/mauvely, the cache and people.json in /var/lib/mauvely.
+RuntimeDirectory=mauvely
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+StateDirectory=mauvely
+StateDirectoryMode=0700
+
+# The agent's hardening. /etc/userdb is written, systemd-creds needs
+# /dev/tpmrm0, and systemctl starts mauvely-home@.service.
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

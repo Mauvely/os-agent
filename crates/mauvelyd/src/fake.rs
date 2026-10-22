@@ -309,6 +309,27 @@ impl Creds for FakeCreds {
     }
 }
 
+/// Bound to its name, as `systemd-creds` binds `--name`: unsealing under
+/// another fails.
+impl crate::creds::Sealer for FakeCreds {
+    fn seal_as(&self, name: &str, secret: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut out = format!("sealed[{name}]:").into_bytes();
+        out.extend(secret.iter().map(|b| b ^ 0xa5));
+        Ok(out)
+    }
+
+    fn unseal_as(&self, name: &str, sealed: &[u8]) -> Result<Vec<u8>, Error> {
+        let prefix = format!("sealed[{name}]:");
+        let body = sealed
+            .strip_prefix(prefix.as_bytes())
+            .ok_or_else(|| Error::Command {
+                program: "systemd-creds".into(),
+                detail: "bad credential".into(),
+            })?;
+        Ok(body.iter().map(|b| b ^ 0xa5).collect())
+    }
+}
+
 /// A directory removed on drop.
 pub struct TempDir(PathBuf);
 

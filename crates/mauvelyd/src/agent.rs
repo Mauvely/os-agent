@@ -13,6 +13,7 @@ use crate::creds::Creds;
 use crate::desktop::{self, Policy};
 use crate::facts::Facts;
 use crate::flatpak::Flatpak;
+use crate::login::{self, LoginPaths};
 use crate::push::{self, Wake, Woke};
 use crate::reconcile::{Inventory, reconcile, update_flatpaks};
 use crate::schedule::{self, Backoff};
@@ -257,6 +258,20 @@ impl<'a> Agent<'a> {
                 Err(e) => errors.push(format!("desktop: {e}")),
             }
         }
+        // Who may sign in. One this agent cannot read leaves the last.
+        if let Some(answer) = &answer.desired.people {
+            match login::people::apply(&LoginPaths::new(&self.paths), answer) {
+                Ok(applied) => {
+                    for name in applied.forgotten {
+                        eprintln!("people: {name} may no longer sign in here offline");
+                    }
+                    for name in applied.demoted {
+                        eprintln!("people: {name} is no longer a device admin here");
+                    }
+                }
+                Err(e) => errors.push(format!("people: {e}")),
+            }
+        }
         self.last_apply = LastApply::new(errors, failed);
         Ok(Outcome::Applied {
             interval_s: answer.interval_s,
@@ -344,6 +359,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             run_dir: dir.path().join("run"),
             desktop_dir: dir.path().join("desktop"),
+            userdb_dir: dir.path().join("userdb"),
         };
         fs::create_dir_all(&paths.config_dir).unwrap();
         fs::write(paths.server(), format!("{server}\n")).unwrap();
@@ -718,6 +734,64 @@ mod tests {
         let error = last["last_apply"]["errors"][0].as_str().unwrap();
         assert!(error.starts_with("desktop: desired.desktop: "), "{error}");
         assert_eq!(body(&reqs[2])["last_apply"]["ok"], true);
+    }
+
+    #[test]
+    fn a_checkin_keeps_who_may_sign_in_and_forgets_who_may_not() {
+        let answer = |people: &str| {
+            format!(
+                r#"{{"device_id":"dev_1","desired":{{"image":null,"remotes":[],"apps":[]{people}}},"interval_s":900}}"#
+            )
+        };
+        let assigned = r#","people":{"mode":"assigned","assigned":{"username":"timur","name":"Timur Inal"},"admins":["ada"],"org":{"name":"Suez","slug":"suez"},"offline_days":14}"#;
+        let server = FakeServer::start(vec![
+            (200, answer(assigned)),
+            // A server from before it.
+            (200, answer("")),
+            (200, answer(r#","people":{"mode":"everyone"}"#)),
+            (200, answer("")),
+        ]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let login = LoginPaths::new(&paths);
+        for name in ["timur", "bob"] {
+            fs::create_dir_all(&login.cache).unwrap();
+            fs::write(login::cache::path(&login.cache, name), "sealed").unwrap();
+        }
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        let mut agent = Agent::load(
+            paths.clone(),
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+
+        agent.tick();
+        let greeter = fs::read_to_string(&login.greeter).unwrap();
+        assert!(
+            greeter.contains(r#""assigned":{"username":"timur""#),
+            "{greeter}"
+        );
+        assert!(!greeter.contains("ada"));
+        assert!(login.people.exists());
+        // Assigned to timur: bob's offline sign-in goes.
+        assert_eq!(login::cache::names(&login.cache), ["timur"]);
+
+        // An older server, then one this agent cannot read: kept as it was.
+        agent.tick();
+        agent.tick();
+        assert_eq!(fs::read_to_string(&login.greeter).unwrap(), greeter);
+        agent.tick();
+        let reqs = server.requests();
+        assert_eq!(body(&reqs[2])["last_apply"]["ok"], true);
+        let error = body(&reqs[3])["last_apply"]["errors"][0]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(error.starts_with("people: "), "{error}");
     }
 
     #[test]

@@ -145,6 +145,10 @@ pub struct Desired {
     /// the rest of the answer. `None` from a server that predates it.
     #[serde(default)]
     pub desktop: Option<serde_json::Value>,
+    /// Who may sign in here (brief 26), read by `login::people`, kept as
+    /// JSON for the same reason. `None` from a server that predates it.
+    #[serde(default)]
+    pub people: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -201,10 +205,15 @@ pub struct Client {
 impl Client {
     /// `base` is the server's origin, without a trailing slash.
     pub fn new(base: &str) -> Self {
+        Self::with_timeout(base, Duration::from_secs(60))
+    }
+
+    /// As `new`, giving up on a call after `timeout`.
+    pub fn with_timeout(base: &str, timeout: Duration) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
-            .timeout_global(Some(Duration::from_secs(60)))
+            .timeout_global(Some(timeout))
             .user_agent(format!("mauvelyd/{}", crate::AGENT_VERSION))
             .build()
             .into();

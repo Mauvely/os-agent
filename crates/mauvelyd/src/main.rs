@@ -5,12 +5,14 @@ use mauvelyd::agent::{self, Enrolment, Host};
 use mauvelyd::bootc::SystemBootc;
 use mauvelyd::creds::SystemdCreds;
 use mauvelyd::flatpak::SystemFlatpak;
+use mauvelyd::login;
 use mauvelyd::state::{self, Device, Paths, Status};
 use mauvelyd::{AGENT_VERSION, api, facts, push};
 
 const USAGE: &str = "usage: mauvelyd run | enrol | status | --version
 
   run      the service: enrol if needed, then check in
+  login    the login service, on /run/mauvely/auth.sock
   enrol    one enrolment attempt, in the foreground
   status   device, server and last check-in
 
@@ -31,6 +33,7 @@ fn main() -> ExitCode {
     let result = match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         ["run"] => run(&paths, host),
         ["enrol"] => enrol(&paths, host),
+        ["login"] => login::serve(&paths, creds.tpm2),
         ["status"] => status(&paths),
         ["--version"] => {
             println!("mauvelyd {AGENT_VERSION}");

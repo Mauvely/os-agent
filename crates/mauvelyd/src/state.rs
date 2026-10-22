@@ -2,8 +2,8 @@
 //! people logged in may read in `/run/mauvely` and `/var/lib/mauvely-desktop`.
 //!
 //! The directories can be moved with `MAUVELY_CONFIG_DIR`, `MAUVELY_STATE_DIR`,
-//! `MAUVELY_RUN_DIR` and `MAUVELY_DESKTOP_DIR`, which is how tests run without
-//! root.
+//! `MAUVELY_RUN_DIR`, `MAUVELY_DESKTOP_DIR` and `MAUVELY_USERDB_DIR`, which is
+//! how tests run without root.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -26,6 +26,8 @@ pub struct Paths {
     /// `0755`, and kept across boots, so a lock holds on a machine that
     /// starts offline. Not under `state_dir`, which is `0700`.
     pub desktop_dir: PathBuf,
+    /// `/etc/userdb`, where the login service writes people's records.
+    pub userdb_dir: PathBuf,
 }
 
 impl Paths {
@@ -41,6 +43,7 @@ impl Paths {
             state_dir: dir("MAUVELY_STATE_DIR", "/var/lib/mauvely"),
             run_dir: dir("MAUVELY_RUN_DIR", "/run/mauvely"),
             desktop_dir: dir("MAUVELY_DESKTOP_DIR", "/var/lib/mauvely-desktop"),
+            userdb_dir: dir("MAUVELY_USERDB_DIR", "/etc/userdb"),
         }
     }
 
@@ -258,6 +261,7 @@ mod tests {
             state_dir: dir.path().join("state"),
             run_dir: dir.path().join("run"),
             desktop_dir: dir.path().join("desktop"),
+            userdb_dir: dir.path().join("userdb"),
         }
     }
 

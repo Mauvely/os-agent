@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/mauvelyd", "crates/mauvely-session", "crates/mauvely-browser-host"]
+members = ["crates/mauvelyd", "crates/mauvely-session", "crates/mauvely-browser-host", "crates/pam-mauvely"]
 resolver = "3"
 
 [workspace.package]
@@ -11,3 +11,11 @@ repository = "https://github.com/Mauvely/os-agent"
 lto = true
 codegen-units = 1
 strip = true
+
+# Argon2id over 64 MiB takes seconds unoptimised: the login service's KDF
+# tests, and a debug build's logins, need these two optimised.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

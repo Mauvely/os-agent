@@ -21,6 +21,9 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 webpki-roots = "1"
+argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+zeroize = { version = "1", features = ["serde"] }
+libc = "0.2"
 
 [dev-dependencies]
 tiny_http = "0.12"

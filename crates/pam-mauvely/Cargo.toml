@@ -1,0 +1,19 @@
+[package]
+name = "pam-mauvely"
+version = "0.1.0"
+description = "pam_mauvely: signing in to Mauvely OS with a Mauvely account, through mauvelyd"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# Built as libpam_mauvely.so; os-image installs it as
+# /usr/lib64/security/pam_mauvely.so.
+name = "pam_mauvely"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1"

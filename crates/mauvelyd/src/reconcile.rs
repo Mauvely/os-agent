@@ -343,6 +343,7 @@ mod tests {
             remotes: vec![remote("mauvely")],
             apps: vec![want("com.mauvely.compose", "mauvely", AppState::Installed)],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert_eq!(r, LastApply::default());
@@ -369,6 +370,7 @@ mod tests {
             remotes: vec![remote("mauvely")],
             apps: vec![want("com.mauvely.compose", "mauvely", AppState::Installed)],
             desktop: None,
+            people: None,
         };
         run(&desired, &fp, &bc, &mut managed);
         fp.clear_log();
@@ -398,6 +400,7 @@ mod tests {
                 ),
             ],
             desktop: None,
+            people: None,
         };
         run(&desired, &fp, &bc, &mut managed);
         fp.clear_log();
@@ -425,6 +428,7 @@ mod tests {
             remotes: vec![],
             apps: vec![want("com.example.Game", "flathub", AppState::Absent)],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(r.ok);
@@ -443,6 +447,7 @@ mod tests {
             remotes: vec![],
             apps: vec![want("com.example.Game", "flathub", AppState::Absent)],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(r.ok);
@@ -468,6 +473,7 @@ mod tests {
                 want("com.example.Game", "flathub", AppState::Absent),
             ],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(!r.ok);
@@ -571,6 +577,7 @@ mod tests {
             remotes: vec![remote("mauvely"), remote("flathub")],
             apps: vec![],
             desktop: None,
+            people: None,
         };
         run(&desired, &fp, &bc, &mut managed);
         assert_eq!(
@@ -613,6 +620,7 @@ mod tests {
             remotes: vec![bad, remote("flathub")],
             apps: vec![],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert_eq!(r.errors.len(), 1);
@@ -637,6 +645,7 @@ mod tests {
                 want("com.mauvely.compose", "flathub", AppState::Installed),
             ],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
         assert!(r.ok, "{:?}", r.errors);
@@ -764,6 +773,7 @@ mod tests {
                 want("com.example.Stuck", "flathub", AppState::Absent),
             ],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut managed);
 
@@ -812,6 +822,7 @@ mod tests {
             remotes: vec![bad],
             apps: vec![],
             desktop: None,
+            people: None,
         };
         let r = run(&desired, &fp, &bc, &mut Managed::default());
         assert_eq!(r.errors.len(), 2, "{:?}", r.errors);
@@ -835,6 +846,7 @@ mod tests {
                 want("com.mauvely.compose", "flathub", AppState::Installed),
             ],
             desktop: None,
+            people: None,
         };
         let r = run_all(&desired, &fp, &bc, &mut managed);
         assert_eq!(

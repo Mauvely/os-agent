@@ -2,7 +2,8 @@
 //!
 //! It enrols the device, checks in on a timer, and reconciles system Flatpak
 //! remotes and apps and the bootc image against what the server asks for.
-//! The wire format is brief 19's agent API v1.
+//! The wire format is brief 19's agent API v1. It also serves the login
+//! socket `pam_mauvely` asks (`login`, brief 26).
 
 pub mod agent;
 pub mod api;
@@ -12,6 +13,7 @@ pub mod creds;
 pub mod desktop;
 pub mod facts;
 pub mod flatpak;
+pub mod login;
 pub mod push;
 pub mod reconcile;
 pub mod schedule;
