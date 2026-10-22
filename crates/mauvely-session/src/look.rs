@@ -21,13 +21,15 @@
 //! panels, and an admin can reset them to the preset's layout. The policy's
 //! `panels_version` moves for a reset, and is remembered beside the rest.
 //! - **A reset** is `plasma-apply-lookandfeel --resetLayout`, which lays out
-//!   the preset's panels and applies its `layoutdefaults`. It works with the
-//!   layout locked (tried on the dev VM, 2026-10-22). Plasma's shell does the
-//!   laying out, so a reset waits for it at a sign-in.
-//! - **Keeping panels**, the theme alone leaves the window settings the
-//!   preset's layout carries: the title-bar buttons, Breeze's corner radius
-//!   and menu opacity. Those are applied from the preset's `layoutdefaults`,
-//!   and KWin is told to read them again.
+//!   the preset's panels. It works with the layout locked (tried on the dev
+//!   VM, 2026-10-22). Plasma's shell does the laying out, so a reset waits for
+//!   it at a sign-in.
+//! - **The window settings** a preset carries (the title-bar buttons, Breeze's
+//!   corner radius and menu opacity) are applied from its `layoutdefaults`
+//!   after either, and KWin is told to read them again. Plasma 6.7's
+//!   `plasma-apply-lookandfeel` applies no `layoutdefaults`, with a reset or
+//!   without (tried on the dev VM, 2026-10-22); the preset's layout script
+//!   writes the same keys, for System Settings' own switch.
 //!
 //! Applying is what System Settings does: `plasma-apply-lookandfeel`, which
 //! writes the theme's settings into the person's own config. Unlocked, they can
@@ -105,8 +107,8 @@ pub trait Look {
     /// Puts the person on a global theme, and with `panels` on its panel
     /// layout too.
     fn apply(&self, theme: &str, panels: bool) -> Result<(), Error>;
-    /// The theme's window settings from its `layoutdefaults`, which the theme
-    /// alone does not apply.
+    /// The theme's window settings from its `layoutdefaults`, which Plasma's
+    /// apply does not write.
     fn window(&self, theme: &str) -> Result<(), Error>;
     /// Waits a while for Plasma's shell, which lays panels out.
     fn wait_for_shell(&self) -> Result<(), Error>;
@@ -174,9 +176,7 @@ fn apply(preset: Preset, look_locked: bool, panels: bool, look: &dyn Look) -> Re
         look.wait_for_shell()?;
     }
     look.apply(theme, panels)?;
-    if !panels {
-        look.window(theme)?;
-    }
+    look.window(theme)?;
     match preset {
         Preset::Mauvely => {
             // Locked, the policy already holds them, and a write would fail.
@@ -528,9 +528,10 @@ mod tests {
         "restart",
     ];
     /// The preset applied to a new account, panels and all.
-    const MAUVELY_NEW: [&str; 6] = [
+    const MAUVELY_NEW: [&str; 7] = [
         "shell",
         "apply com.mauvely.light.desktop with panels",
+        "window com.mauvely.light.desktop",
         "set DefaultLightLookAndFeel=com.mauvely.light.desktop",
         "set DefaultDarkLookAndFeel=com.mauvely.dark.desktop",
         "set AutomaticLookAndFeel=true",
@@ -616,6 +617,7 @@ mod tests {
             [
                 "shell",
                 "apply com.mauvely.light.desktop with panels",
+                "window com.mauvely.light.desktop",
                 "restart"
             ]
         );
@@ -679,6 +681,7 @@ mod tests {
             [
                 "shell",
                 "apply com.mauvely.plasma.desktop with panels",
+                "window com.mauvely.plasma.desktop",
                 "restart"
             ]
         );
@@ -767,6 +770,7 @@ mod tests {
             [
                 "shell",
                 "apply com.mauvely.plasma.desktop with panels",
+                "window com.mauvely.plasma.desktop",
                 "restart"
             ]
         );
