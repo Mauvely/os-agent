@@ -1,5 +1,169 @@
 # Handoff
 
+## 2026-10-22, late: brief 26, signing in with a Mauvely account
+
+`mauvelyd login` (the login service) and `pam_mauvely` (a new crate,
+`crates/pam-mauvely`) are built. `docs/login.md` has the protocol, the rules,
+every refusal and the threat model; this is what it does not say. `cargo test`
+passes (mauvelyd 184 + 1 + 1, pam-mauvely 19, mauvely-session 142,
+mauvely-browser-host 15 + 2), clippy and fmt are clean, `cargo build
+--release --locked` builds all four. New to `Cargo.lock`: `argon2` 0.6 (with
+`blake2`, `base64ct`, `ctutils`), for mauvelyd; `libc` and `zeroize` were
+already there. No aws-lc or openssl. `agent.ref` in os-image is not touched.
+
+### Proved, short of the VM
+
+- **Every rule in `cargo test`**, and each guard broken once to see a test
+  fail: the peer rule (another person's name; the login screen for root
+  only), the code only at `plasmalogin`, no fallback after a refusal, the
+  assignment rule, the stale-cache rule, the server's uid range, local
+  accounts to `pam_unix`, the offline days, and in the module
+  `not_mauvely` to `PAM_IGNORE` and a missing daemon failing closed.
+- **website-main's 15 KDF vectors** (`tests/vectors/kdf.json`, a copy of
+  `shared/vectors/kdf.json` at website-main `dd50289`), and the empty password
+  refused.
+- **`tests/login/local.sh`**: the debug module through this machine's libpam
+  (1.7.3, `pam_start_confdir`), against a fake daemon: 22 checks.
+- **`tests/login/container.sh`**: the release module built in Fedora 44
+  (pam 1.7.2, glibc 2.43), in Kinoite 44.20261019.0 as root, under an
+  authselect `mauvely` vendor profile with **os-image's exact lines** (two
+  `pam_localuser`, then `pam_mauvely`): the real `/usr/lib/pam.d/plasmalogin`
+  with its code prompt, sudo, `login`, a system user from `/usr/lib/passwd`
+  never reaching the daemon, the password reaching `pam_exec expose_authtok`
+  after the substack (what the wallets need), and with the daemon down root
+  and a local admin still signing in while a Mauvely name is refused with 9.
+- **`tests/login/e2e.sh`**: the real `mauvelyd login` and the real module in
+  Kinoite as root, the device key and the cache sealed by the real
+  `systemd-creds` (host key), against `fake_devices.py`: 43 checks. `getent`
+  and `id` saw the userdb records and `wheel`; the home was made through a
+  fake `systemctl` that resolved the new user; the hand-off was `0600 timur`
+  in a `1733` directory; the vector's `authSecret` was on the wire and the
+  password was not; a version 0 account was upgraded with its new session;
+  the lock screen worked as the person (`setpriv` to uid 21001) and refused
+  them another person; a text console refused a non-admin; offline signed in
+  without a code and handed nothing over; the log held no token, password or
+  unknown typed name.
+
+### Decisions the brief did not make
+
+- **The login service is its own process and unit**,
+  `dist/mauvely-login.service` (`mauvelyd login`, `Before=display-manager.service`,
+  `Restart=always`). In the agent's process it would have waited for
+  `network-online.target`, which offline (the cache's whole point) is up to a
+  minute after the login screen is up; and a crash in the agent's reconcile
+  would have taken logins down with it. The two share files, not memory: the
+  service loads the device key itself at the first online sign-in after
+  enrolment. **os-image must install and enable this unit.**
+- **`not_mauvely`**: a name NSS knows that is not one of our records gets
+  `PAM_IGNORE`, so `pam_unix` judges it. With os-image's stack this is only a
+  backstop (a dynamic user, another service's userdb record); a name on no
+  list is never ignored.
+- **Usernames**: website-devices' rule, then systemd's strict one: a Mauvely
+  name with a leading digit, or 32 characters, is `bad_username` ("This name
+  can't be used to sign in to a computer."). Mapping them is left.
+- **Offline**: only at the password step (a network error, a timeout, a 5xx,
+  or a 404 from a server without the door); unreachable at the code is
+  `unreachable`, and the retry goes offline. 401 `unauthorised` (say, a clock
+  off by minutes) is a refusal, `unavailable`, not offline. `rate_limited` is a
+  refusal (OS-LOGIN.md left it to us). The age limit is the stricter of the
+  entry's `offlineDays` and the collection's now; a clock more than 5 minutes
+  before the entry's sign-in is not believed.
+- **The lock screen, sudo and polkit check the cache with no age limit**, or
+  a person signed in for three weeks could not unlock.
+- **The cache entry goes** on a `credentials` refusal only when the password
+  typed is the one the cache knows (otherwise anyone could wipe a person's
+  offline sign-in); always on `not_member`, `inactive`, `sso_required` and
+  `not_allowed`; and when `desired.people` no longer allows them.
+- **The cache is sealed** with `systemd-creds` (TPM2 where there is one) under
+  `mauvely-person-<username>`: one decrypt per unlock. The password also opens
+  the person's Cloud vault, so the verifier is worth keeping off a copied disk.
+  Verifier: Argon2id, its own 16-byte salt, m=64 MiB, t=4, p=1, associated
+  data `mauvely-os offline cache v1`.
+- **A demoted admin leaves `wheel` at the next check-in**, not only at their
+  next online sign-in; offline sign-in never re-promotes. Promotion still waits
+  for an online sign-in, which writes the record.
+- **Text logins ask `desired.people`'s admins**, the current list.
+- **The primary group's membership file** (`timur:timur.membership`) is
+  written too: nss-systemd(8) says drop-ins must carry it.
+- **Records carry `"service": "com.mauvely.Users"`**, the mark of ours. A uid
+  or name another account has is refused (`internal`), including a name one of
+  our records holds on another uid (a handle reused by someone new). A uid
+  that had another of our names is a rename: old records and cache go, the old
+  home stays.
+- **`realName`** loses control characters and colons, cut at 120.
+- **The login's session replaces a stored one** in mauvely-session and is
+  sealed into `os.cred` (it was held in memory only). `OsSession.email` holds
+  the handle: the login answer has no address.
+- **The hand-off directory is `01733`** so the person can delete their own
+  file; the file is staged in `/run/mauvely` and renamed in, and
+  mauvely-session takes only its own `0600` regular file without following a
+  link. A directory another user plants at your name fails the hand-off
+  (logged; that person gets the sign-in window).
+- **Root only for `plasmalogin`**, on top of the peer rule: a person could
+  otherwise mint sessions and write records from their own session.
+- **Limits**: 32 connections, 4 per non-root uid, 2 Argon2 at once, a 2 s
+  delay after a wrong password away from the login screen.
+- **Logs** name a typed username only once it is a person here.
+- **Messages** are in `wire.rs` and `docs/login.md`; the email factor's line
+  is "Enter the code we emailed you."
+
+### For os-image
+
+Do not move `agent.ref` from here; the parent session does it.
+- **Build**: `cargo build --release --locked` now also makes
+  `target/release/libpam_mauvely.so`; the builder needs `pam-devel` (it links
+  libpam). Install it as `/usr/lib64/security/pam_mauvely.so`. It exports
+  `pam_sm_authenticate`, `pam_sm_acct_mgmt`, `pam_sm_setcred`, nothing else.
+- **Units**: `dist/mauvely-login.service` to
+  `/usr/lib/systemd/system/`, enabled. It shares `RuntimeDirectory=mauvely`
+  (`0755`, preserved) and `StateDirectory=mauvely` (`0700`) with
+  `mauvelyd.service`.
+- **`mauvely-home@.service`**: started as `mauvely-home@<username>.service`,
+  the plain name, after the userdb record is written; the agent waits 20 s.
+- **Files**: `/run/mauvely/auth.sock` (`0666`), `/run/mauvely/login/`
+  (`01733`, made by the service), `/run/mauvely/.login-<uid>.tmp` briefly,
+  `/var/lib/mauvely/people.json` and `people/`, `/var/lib/mauvely-desktop/people.json`
+  (`0644`, the greeter's), `/etc/userdb/*` (`0644` files and links).
+- **`/etc/userdb` is `0700` on the image.** Root reads it, and nss-systemd in
+  an unprivileged process goes through `systemd-userdbd`, so that must stay
+  enabled (Fedora's default); `getent passwd <person>` as the person, on the
+  VM, is the check. systemd's own docs want the records world-readable.
+- **SELinux**: the service is `unconfined_service_t` (bin_t), creates the
+  socket and `/run/mauvely/login`; mauvely-session (`unconfined_t`) reads and
+  deletes the hand-off. Who connects: `xdm_t` (plasmalogin-helper),
+  `local_login_t` (`login`), `policykit_auth_t`, `sshd_session_t`,
+  `unconfined_t` (lock screen, sudo, su).
+
+### Never run
+
+- On the VM: the patched login screen against the real module and service,
+  a real TPM sealing the cache, SELinux enforcing, the real
+  `mauvely-home@.service`, `systemd-userdbd` serving the drop-ins to the
+  person, and `mauvely-session` taking the hand-off in a real session.
+- Against the real website-devices and website-main: only fakes. The fakes
+  follow `worker/routes/login.ts` and `docs/OS-LOGIN.md`, read at
+  website-devices and website-main `origin/main` on 2026-10-22.
+- The `systemctl` path inside `mauvely-login.service`'s sandbox.
+
+### Left
+
+- **A person who leaves keeps their userdb record and home**: removing them is
+  brief 29's reset or a later cleanup. On a shared device a removed member
+  keeps their cache (so their lock screen and sudo) until they try the login
+  screen online: `desired.people` does not list a shared device's members.
+- **Usernames a computer can't use** (a leading digit, 32 characters) cannot
+  sign in; mapping them is brief 26's open "Usernames" item.
+- A version 0 account's upgrade is only logged when it fails; the next
+  sign-in tries again.
+- A login whose account phase fails after the hand-off leaves the session file
+  in `/run` until the next login overwrites it or a reboot.
+
+### Found, not changed
+
+- `signin::tests::closed_by_the_person_is_later_and_it_waits_to_be_finished`
+  failed once under a parallel build (read `inish` for `finish`) and passed
+  six runs after: a timing flake in the fake window script.
+
 ## 2026-10-22, evening: brief 22's S4, the browser extension
 
 Firefox and Chromium are signed in to mauvely.com from the computer's link.
