@@ -1,17 +1,20 @@
 //! `mauvely-session`, the Mauvely OS helper in each graphical session. It
 //! runs as the person, from `dist/mauvely-session.service`.
 //!
-//! It does three things:
+//! It does four things:
 //! - when an update is staged, it says once that a restart finishes it, and
 //!   restarts when asked (brief 22, U2);
 //! - it is the sign-in broker: it links this computer to the person's
 //!   Mauvely account once, in the sign-in window (`signin`), then signs the
 //!   Mauvely apps and the browsers in from that (brief 22, S2, in `broker`);
 //! - when the agent has installed an app, it says once that the app is ready,
-//!   and opens it when asked (`ready`).
+//!   and opens it when asked (`ready`);
+//! - when the collection's desktop preset changes, it puts the person on it,
+//!   once (`look`, brief 25).
 
 mod broker;
 mod dialog;
+mod look;
 mod ready;
 mod signin;
 mod staged;
@@ -181,7 +184,14 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let ready_memory = state.join("mauvely/ready");
     std::thread::spawn(move || tell_apps_are_ready(&tell, &ready_memory, &openable));
 
+    let plasma = look::Plasma::new(&session);
+    let look_memory = state.join("mauvely/look");
     loop {
+        match look::check(Path::new(look::POLICY), &look_memory, &plasma) {
+            Ok(true) => eprintln!("mauvely-session: the collection's desktop preset is applied"),
+            Ok(false) => {}
+            Err(e) => eprintln!("mauvely-session: desktop preset: {e}"),
+        }
         if let Some(broker) = &broker {
             broker.offer_if_wanted();
         }

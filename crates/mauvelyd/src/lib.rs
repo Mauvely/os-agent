@@ -9,6 +9,7 @@ pub mod api;
 pub mod bootc;
 pub mod command;
 pub mod creds;
+pub mod desktop;
 pub mod facts;
 pub mod flatpak;
 pub mod reconcile;

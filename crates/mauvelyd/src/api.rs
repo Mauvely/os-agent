@@ -137,6 +137,11 @@ pub struct Desired {
     pub image: Option<DesiredImage>,
     pub remotes: Vec<DesiredRemote>,
     pub apps: Vec<DesiredApp>,
+    /// The collection's desktop policy (brief 25), read by `desktop`. Kept as
+    /// JSON here so that one this agent cannot read fails only itself, never
+    /// the rest of the answer. `None` from a server that predates it.
+    #[serde(default)]
+    pub desktop: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

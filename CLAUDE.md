@@ -29,6 +29,7 @@ A Cargo workspace with two crates:
 | `api` | The wire types and the signed `ureq` client |
 | `flatpak`, `bootc`, `creds` | A trait each, the real CLI behind it, and its argv builders and output parsers |
 | `reconcile` | Brief 19's reconcile rules, as one function over the traits, and brief 22's Flatpak updates |
+| `desktop` | Brief 25's desktop policy as KDE Kiosk files in `/var/lib/mauvely-desktop/` (`xdg/kdeglobals`, which the image puts in `XDG_CONFIG_DIRS`, and `policy.json` for mauvely-session) |
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
 | `state`, `facts`, `schedule` | Files on disk (`/etc/mauvely`, `/var/lib/mauvely`, and `/run/mauvely/installed.json`, which everyone reads), hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
@@ -39,6 +40,7 @@ A Cargo workspace with two crates:
 |---|---|
 | `staged` | Whether an update is staged, and saying so once |
 | `ready` | "<App> is ready": the agent's `/run/mauvely/installed.json`, what this person has been told, and Open |
+| `look` | The collection's desktop preset, applied once per change of `/var/lib/mauvely-desktop/policy.json` with `plasma-apply-lookandfeel`, behind a trait |
 | `signin` | The sign-in window, `/usr/bin/mauvely-signin` (os-installer's `signin/`): started with the code on stdin, told to finish after the claim, `closed` read back |
 | `dialog` | The sign-in offer and code as `kdialog` windows, where the sign-in window is missing or fails; the code goes to kdialog on stdin |
 | `broker::caller` | Who may ask the broker for what, pure |
@@ -84,7 +86,15 @@ A Cargo workspace with two crates:
 - **`mauvely-session` runs as the person, never as root.** It changes nothing
   on the machine but its own files in `$XDG_STATE_HOME/mauvely/` and its
   socket in `$XDG_RUNTIME_DIR/mauvely/`, asks logind for a reboot only when
-  the person clicks Restart, and opens an app only when they click Open.
+  the person clicks Restart, and opens an app only when they click Open. The
+  one exception is the desktop preset (`look`), which writes the person's own
+  KDE config through Plasma's tools, once per change an admin makes.
+- **`/var/lib/mauvely-desktop` is the agent's, not `/var/lib/mauvely`**, which
+  systemd keeps `0700` (`StateDirectoryMode`), so nobody else could read a
+  policy under it. It is `0755` with `0644` files, written by `desktop`, and
+  stays across boots so a lock holds on a machine that starts offline. A
+  `ProtectSystem=` in `dist/mauvelyd.service` would need `ReadWritePaths=` for
+  it; a test reads the unit for that.
 - **`broker::caller` is the broker's security boundary.** Change it with its
   tests. `BROKERABLE` is never narrower than website-main's `KNOWN_CLIENTS`
   without `suite` and `os`, and `BROWSERS` names the same browsers as

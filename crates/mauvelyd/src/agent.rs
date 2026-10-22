@@ -10,6 +10,7 @@ use crate::api::{
 };
 use crate::bootc::Bootc;
 use crate::creds::Creds;
+use crate::desktop::{self, Policy};
 use crate::facts::Facts;
 use crate::flatpak::Flatpak;
 use crate::reconcile::{Inventory, reconcile, update_flatpaks};
@@ -227,6 +228,20 @@ impl<'a> Agent<'a> {
         if let Err(e) = state::write_json(&self.paths.managed(), &self.managed) {
             errors.push(e.to_string());
         }
+        // A server from before the desktop policy says nothing, and the files
+        // stay as they are.
+        if let Some(answer) = &answer.desired.desktop {
+            let written = Policy::from_answer(answer)
+                .and_then(|p| desktop::apply(&self.paths.desktop_dir, &p).map(|c| (p, c)));
+            match written {
+                Ok((p, true)) => eprintln!(
+                    "desktop policy {}: preset {:?}, {:?}",
+                    p.version, p.preset, p.lock
+                ),
+                Ok(_) => {}
+                Err(e) => errors.push(format!("desktop: {e}")),
+            }
+        }
         self.last_apply = LastApply::new(errors, failed);
         Ok(Outcome::Applied {
             interval_s: answer.interval_s,
@@ -299,6 +314,7 @@ mod tests {
             config_dir: dir.path().join("etc"),
             state_dir: dir.path().join("state"),
             run_dir: dir.path().join("run"),
+            desktop_dir: dir.path().join("desktop"),
         };
         fs::create_dir_all(&paths.config_dir).unwrap();
         fs::write(paths.server(), format!("{server}\n")).unwrap();
@@ -608,6 +624,71 @@ mod tests {
         let second: Value = serde_json::from_slice(&fs::read(paths.installed()).unwrap()).unwrap();
         assert_eq!(second, first);
         drop(server);
+    }
+
+    #[test]
+    fn a_checkin_writes_the_desktop_policy_and_an_old_server_leaves_it() {
+        let answer = |desktop: &str| {
+            format!(
+                r#"{{"device_id":"dev_1","desired":{{"image":null,"remotes":[],"apps":[]{desktop}}},"interval_s":900}}"#
+            )
+        };
+        let server = FakeServer::start(vec![
+            (
+                200,
+                answer(
+                    r#","desktop":{"preset":"plasma","lock":{"look":true,"layout":false},"version":2}"#,
+                ),
+            ),
+            // A server from before the policy.
+            (200, answer("")),
+            // A preset this agent does not know.
+            (
+                200,
+                answer(
+                    r#","desktop":{"preset":"classic","lock":{"look":false,"layout":false},"version":3}"#,
+                ),
+            ),
+            (200, answer("")),
+        ]);
+        let dir = TempDir::new();
+        let (paths, _) = enrolled(&dir, &server.base);
+        let (fp, bc) = (FakeFlatpak::default(), FakeBootc::booted("img"));
+        let mut agent = Agent::load(
+            paths.clone(),
+            Host {
+                flatpak: &fp,
+                bootc: &bc,
+                creds: &FakeCreds,
+            },
+        )
+        .unwrap();
+        let kdeglobals = paths.desktop_dir.join("xdg/kdeglobals");
+        let policy = paths.desktop_dir.join("policy.json");
+
+        agent.tick();
+        let written = fs::read_to_string(&kdeglobals).unwrap();
+        assert!(written.contains("LookAndFeelPackage[$i]=com.mauvely.plasma.desktop\n"));
+        let json: Value = serde_json::from_slice(&fs::read(&policy).unwrap()).unwrap();
+        assert_eq!(json["version"], 2);
+
+        agent.tick();
+        assert_eq!(fs::read_to_string(&kdeglobals).unwrap(), written);
+
+        // Not understood: the files stay, and the next check-in says why.
+        agent.tick();
+        assert_eq!(fs::read_to_string(&kdeglobals).unwrap(), written);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&policy).unwrap()).unwrap(),
+            json
+        );
+        agent.tick();
+        let reqs = server.requests();
+        let last = body(&reqs[3]);
+        assert_eq!(last["last_apply"]["ok"], false);
+        let error = last["last_apply"]["errors"][0].as_str().unwrap();
+        assert!(error.starts_with("desktop: desired.desktop: "), "{error}");
+        assert_eq!(body(&reqs[2])["last_apply"]["ok"], true);
     }
 
     #[test]

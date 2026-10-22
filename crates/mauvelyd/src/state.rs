@@ -1,8 +1,9 @@
 //! Configuration in `/etc/mauvely`, state in `/var/lib/mauvely`, and what the
-//! people logged in may read in `/run/mauvely`.
+//! people logged in may read in `/run/mauvely` and `/var/lib/mauvely-desktop`.
 //!
-//! The directories can be moved with `MAUVELY_CONFIG_DIR`, `MAUVELY_STATE_DIR`
-//! and `MAUVELY_RUN_DIR`, which is how tests run without root.
+//! The directories can be moved with `MAUVELY_CONFIG_DIR`, `MAUVELY_STATE_DIR`,
+//! `MAUVELY_RUN_DIR` and `MAUVELY_DESKTOP_DIR`, which is how tests run without
+//! root.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -21,6 +22,10 @@ pub struct Paths {
     /// `/run/mauvely`, which `dist/mauvelyd.service` makes `0755`. Its files
     /// are root's, and everyone's to read.
     pub run_dir: PathBuf,
+    /// `/var/lib/mauvely-desktop`, the desktop policy (`desktop`): root's,
+    /// `0755`, and kept across boots, so a lock holds on a machine that
+    /// starts offline. Not under `state_dir`, which is `0700`.
+    pub desktop_dir: PathBuf,
 }
 
 impl Paths {
@@ -35,6 +40,7 @@ impl Paths {
             config_dir: dir("MAUVELY_CONFIG_DIR", "/etc/mauvely"),
             state_dir: dir("MAUVELY_STATE_DIR", "/var/lib/mauvely"),
             run_dir: dir("MAUVELY_RUN_DIR", "/run/mauvely"),
+            desktop_dir: dir("MAUVELY_DESKTOP_DIR", "/var/lib/mauvely-desktop"),
         }
     }
 
@@ -220,7 +226,7 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), Error> {
 
 /// Writes `bytes` to `path` atomically, with exactly `mode` whatever the
 /// umask.
-fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Error> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Error> {
     let dir = path.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(dir).map_err(|e| Error::io(dir, e))?;
     let mut tmp = path.as_os_str().to_owned();
@@ -251,6 +257,7 @@ mod tests {
             config_dir: dir.path().join("etc"),
             state_dir: dir.path().join("state"),
             run_dir: dir.path().join("run"),
+            desktop_dir: dir.path().join("desktop"),
         }
     }
 

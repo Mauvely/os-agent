@@ -1,5 +1,101 @@
 # Handoff
 
+## 2026-10-22, later: the desktop policy (brief 25, phase 3)
+
+`mauvelyd` writes a collection's desktop policy as KDE Kiosk files, and
+`mauvely-session` puts each person on its preset once per change. The server
+side is website-devices `dab8229` (on its `staging`): `desired.desktop:
+{preset, lock: {look, layout}, version}` in every check-in answer. `cargo test`
+passes, clippy and fmt are clean, `cargo build --release --locked` builds and
+`Cargo.lock` is unchanged. `agent.ref` in os-image is not touched.
+
+### What it does
+
+- **`mauvelyd` (`desktop`)** writes `/var/lib/mauvely-desktop/xdg/kdeglobals`
+  and `/var/lib/mauvely-desktop/policy.json`, root's, `0755`/`0644`, only when
+  they change, and removes `kdeglobals` when the policy asks for nothing.
+  `desired.desktop` is kept as JSON in `api::Desired` and parsed here, so one
+  it cannot read (a preset added later) is a `desktop: …` error in the next
+  `last_apply` and leaves the files as they were, rather than failing the
+  whole answer. An answer without it (an older server) leaves them too.
+- **The files:**
+  - Mauvely: `AutomaticLookAndFeel=true`, the light and dark ids, and
+    `LookAndFeelPackage` the light one. Locked, the three switching keys get
+    `[$i]`; `LookAndFeelPackage` never does, because Plasma's switcher writes
+    it at each change of light and would be stuck on the first one.
+  - Plasma: `AutomaticLookAndFeel=false` and `LookAndFeelPackage=com.mauvely.plasma.desktop`,
+    both `[$i]` when locked. That id is a stand-in until os-image's phase 2
+    ships the package.
+  - The look lock: `[KDE Control Module Restrictions][$i]` for the 11 ids in
+    `desktop::LOOK_MODULES` (Plasma 6.7's; `kcm_style` and
+    `kcm_breezedecoration` are additions to the brief's list).
+  - The layout lock: `[KDE Action Restrictions][$i]
+    plasma/plasmashell/unlockedDesktop=false`; with the look locked too,
+    `plasma/allow_configure_when_locked=false`.
+- **`mauvely-session` (`look`)** reads `policy.json` every 5 minutes (the main
+  loop) and remembers `<version> <preset> <locked|open>` in
+  `$XDG_STATE_HOME/mauvely/look`. When that differs and there is a preset:
+  - Mauvely: `plasma-apply-lookandfeel -a com.mauvely.light.desktop`, then,
+    unless the look is locked, `kwriteconfig6` for the three switching keys,
+    then kded's `unloadModule`/`loadModule lookandfeelautoswitcher`, which
+    picks dark at night;
+  - Plasma: `plasma-apply-lookandfeel -a com.mauvely.plasma.desktop`, then the
+    same restart, which stops the switcher.
+  A failed apply is not remembered and is tried at the next look; a restart
+  that fails is only logged.
+- **The look lock is part of the memory, not only the version**, because the
+  server does not bump the version on an unlock. While locked, the pinned keys
+  can't be written to the person's own config (`kwriteconfig6` exits 2, by an
+  absolute path too); a stale value there, such as switching left on under
+  Plasma, came back once the lock went. Applying again, unlocked, writes them.
+
+### Seen on the VM (`mauvely-01`, Plasma 6.7.5, 2026-10-22)
+
+The files were written by hand, as `desktop` writes them, with
+`XDG_CONFIG_DIRS` set the way phase 2's `/etc/profile.d` script will. All of it
+was removed afterwards, and timuri's config restored.
+
+- **Reaching the session:** both `/etc/environment.d/` and `/etc/profile.d/`
+  put the directory in plasmashell's, KWin's, kded's and ksmserver's
+  `XDG_CONFIG_DIRS`, after `~/.config/kdedefaults`.
+- **Look locked:** System Settings' "Colours & Themes" held only System
+  Sounds; "Text & Fonts" only Font Management; the Quick Settings page lost its
+  global theme button. `kcmshell6 kcm_colors` showed "The module kcm_colors is
+  disabled… by the system administrator."
+- **Quick Settings' light/dark/automatic picker stays**, but changes nothing:
+  under Mauvely the switch stays on; under Plasma, Apply stays greyed out.
+- **`plasma-apply-lookandfeel` from a terminal gets through.** The pinned keys
+  hold, but the theme's colours are applied. Under Mauvely the next change of
+  light (or a switcher restart) puts it back; under Plasma nothing does. Kiosk
+  is a convenience, as decided.
+- **The session's sequence, by hand at 03:07:** light applied, switcher
+  restarted, dark on.
+- **Layout locked:** `PlasmaShell.immutable()` true, `editMode` can't be set,
+  `evaluateScript` answers "Widgets are locked". The desktop menu has no Edit
+  Mode or widgets; the panel has no menu; the launcher has none; a pinned
+  task's menu has no Unpin. **So pinning and unpinning taskbar apps goes with
+  the layout lock.**
+- **The wallpaper:** both locked, the desktop menu has no "Desktop and
+  Wallpaper". The look alone leaves it there, and Edit Mode, as expected.
+- **Unlocked:** edit mode and the Colours page back after a plasmashell
+  restart.
+
+### Never run
+
+- The real `mauvelyd` and `mauvely-session` with this code on a machine: no
+  image carries it yet. The hand-written files carried the keys and groups
+  the unit tests pin.
+- A new account's first sign-in with the policy in place (startplasma reads
+  `LookAndFeelPackage` from the policy directory; read from the source, not
+  seen).
+- `plasma-apply-lookandfeel -a com.mauvely.plasma.desktop` against phase 2's
+  real package; a stand-in copy of Breeze was used.
+
+### Locks take effect at the next sign-in
+
+plasmashell reads the restriction when it loads, and System Settings when it
+starts. Nothing restarts plasmashell for a lock.
+
 ## 2026-10-22: the sign-in window
 
 `mauvely-session` now links the computer through `mauvely-signin`, os-installer's
