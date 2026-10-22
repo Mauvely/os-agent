@@ -10,8 +10,9 @@
 update is staged it shows "Restart to finish updating" once, with a Restart
 button. When the agent has installed an app it shows "<App> is ready" once,
 with an Open button. It is also the sign-in broker: it links the computer to
-the person's Mauvely account once, in a window, then signs the Mauvely apps
-and the browsers in from that (`docs/broker.md`).
+the person's Mauvely account once, in a window that shows Mauvely's own
+sign-in (`mauvely-signin`, from os-installer), then signs the Mauvely apps and
+the browsers in from that (`docs/broker.md`).
 
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
 talk only to the daemon over a local socket, never to the network.

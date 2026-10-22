@@ -3,10 +3,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use super::Clock;
 use super::seal::OsSession;
-use super::stale_after;
 use super::testing::*;
+use super::{Clock, LoginSession, NoLoginSession, stale_after};
 
 const COMPOSE: &str = r#"{"v":1,"op":"token","client":"compose"}"#;
 const BROWSER: &str = r#"{"v":1,"op":"browser"}"#;
@@ -148,11 +147,15 @@ fn a_declined_or_expired_link_leaves_it_signed_out() {
 }
 
 #[test]
-fn a_link_that_cannot_start_is_offered_again() {
+fn a_link_that_cannot_start_is_offered_again_as_a_question() {
     let mut f = Fixture::new(vec![(503, String::new())]);
     f.broker.offer_if_wanted();
     f.broker.link();
     assert_eq!(f.offers(), 2);
+    // The first offer may be the sign-in window, which links by itself; the
+    // second asks, so a server that cannot be reached is not asked again and
+    // again.
+    assert_eq!(*f.desktop.asks.lock().unwrap(), [false, true]);
     assert!(f.desktop.opened.lock().unwrap().is_empty());
     assert_eq!(f.requests().len(), 1);
 
@@ -506,4 +509,110 @@ fn signed_in_a_sign_in_click_does_nothing() {
     f.broker.link();
     assert!(f.desktop.opened.lock().unwrap().is_empty());
     assert!(f.requests().is_empty());
+}
+
+#[test]
+fn once_a_link_starts_the_offer_no_longer_asks_first() {
+    let f = Fixture::new(vec![
+        (503, String::new()),
+        start(5, 600),
+        (200, Fixture::minted("tok_os_new", 90 * 86_400)),
+        (401, error("unauthorized")),
+    ]);
+    f.broker.offer_if_wanted();
+    f.broker.link();
+    f.broker.link();
+    assert_eq!(f.stored().unwrap().token, "tok_os_new");
+    // Signed out later: the window may link by itself again.
+    refused(&f.ask(&compose(), COMPOSE), "signed_out");
+    assert_eq!(*f.desktop.asks.lock().unwrap(), [false, true, false]);
+}
+
+/// The person closes the sign-in window as soon as the code is shown.
+fn close_on_show(f: &Fixture) {
+    let broker = Arc::downgrade(&f.broker);
+    *f.desktop.on_show.lock().unwrap() = Some(Box::new(move || {
+        broker.upgrade().unwrap().closed();
+    }));
+}
+
+#[test]
+fn closing_the_window_ends_the_link_after_one_more_poll() {
+    let mut f = Fixture::new(vec![start(5, 600), pending(), pending()]);
+    close_on_show(&f);
+    f.broker.offer_if_wanted();
+    f.broker.link();
+    assert!(f.stored().is_none());
+    assert_eq!(f.desktop.withdrawn.load(Ordering::SeqCst), 1);
+    // Later: not offered again until the next login.
+    f.broker.offer_if_wanted();
+    assert_eq!(f.offers(), 1);
+    let lines: Vec<String> = f.requests().iter().map(|r| r.line()).collect();
+    assert_eq!(
+        lines,
+        ["POST /api/auth/device/start", "POST /api/auth/device/token"]
+    );
+}
+
+#[test]
+fn a_link_approved_just_before_the_window_closed_is_still_claimed() {
+    let mut f = Fixture::new(vec![
+        start(5, 600),
+        (200, Fixture::minted("tok_os_new", 90 * 86_400)),
+    ]);
+    close_on_show(&f);
+    f.broker.link();
+    assert_eq!(f.stored().unwrap().token, "tok_os_new");
+    // Claimed, then the window is told it may sign its own session out.
+    assert_eq!(*f.desktop.signed_in.lock().unwrap(), ["ada@example.com"]);
+    assert_eq!(f.desktop.withdrawn.load(Ordering::SeqCst), 0);
+    assert_eq!(f.requests().len(), 2);
+}
+
+fn login_session(origin: &str, lifetime: u64) -> OsSession {
+    OsSession {
+        token: "tok_login".into(),
+        expires_at: NOW + lifetime,
+        email: "ada@example.com".into(),
+        origin: origin.into(),
+    }
+}
+
+#[test]
+fn today_no_login_produces_a_session() {
+    assert!(NoLoginSession.session().is_none());
+    let f = Fixture::new(vec![]);
+    f.broker.offer_if_wanted();
+    assert_eq!(f.offers(), 1);
+}
+
+#[test]
+fn a_session_from_the_login_needs_no_link() {
+    let mut f = Fixture::with_login(
+        vec![(200, Fixture::minted("tok_compose", 3600))],
+        None,
+        Some(login_session("{BASE}", 3600)),
+    );
+    // Nothing is shown: no window, no question.
+    f.broker.offer_if_wanted();
+    assert_eq!(f.offers(), 0);
+    granted(&f.ask(&compose(), COMPOSE), "tok_compose");
+    let reqs = f.requests();
+    assert_eq!(reqs[0].header("Authorization"), Some("Bearer tok_login"));
+    // Held for this login, not sealed: that is milestone 2's to decide.
+    assert!(f.stored().is_none());
+}
+
+#[test]
+fn a_login_session_for_another_server_or_expired_is_not_taken() {
+    for login in [
+        login_session("https://other.example", 3600),
+        login_session("{BASE}", 0),
+    ] {
+        let mut f = Fixture::with_login(vec![], None, Some(login));
+        f.broker.offer_if_wanted();
+        assert_eq!(f.offers(), 1);
+        refused(&f.ask(&compose(), COMPOSE), "signed_out");
+        assert!(f.requests().is_empty());
+    }
 }

@@ -10,27 +10,21 @@ already speak.
 
 ## Linking
 
-Once per local user, until M2's login fills the same store.
+Once per local user, until M2's login fills the same store (below).
 
-1. At each graphical login with no `os` session, a window: "Sign in to
-   Mauvely", "Link this computer to your Mauvely account.", with two buttons,
-   "Open the sign-in page" and "Later". "Later" and closing the window leave
-   it signed out until the next login. Where `kdialog` is missing or fails,
-   the offer is a notification instead: "Sign in to Mauvely", one action,
-   "Sign in", which stays until dismissed.
-2. "Open the sign-in page" starts a device link as client `os`
-   (`POST /api/auth/device/start`). A second window, "Enter this code to sign
-   in" over the code in large type, stays up while the link is pending, and
-   the link page opens in the default browser, through the OpenURI portal, or
-   `xdg-open` when there is none. **The page opens without the code**:
-   whatever opens it puts the address in an argv that every local user can
-   read under `/proc`, and with the code any of them could approve the link
-   for their own account. Only a page on the accounts origin is opened. The
-   code window's OK closes it and nothing else: the link carries on, and the
-   code is not shown again. Without a window, the code is the body of a
-   notification.
-3. The broker polls `POST /api/auth/device/token` until the link is approved,
-   declined or expired (ten minutes). The code window goes when it ends.
+1. At each graphical login with no `os` session, the broker starts a device
+   link as client `os` (`POST /api/auth/device/start`) and opens the
+   **sign-in window**, `mauvely-signin`: a frameless Mauvely window around
+   website-main's `<accounts origin>/link?code=<code>&embed=os`. The person
+   signs in there, with a password and second factor or their organisation's
+   single sign-on, and approves "Link this computer". The window is the offer
+   and the code at once, so nothing is asked first.
+2. The broker polls `POST /api/auth/device/token` until the link is approved,
+   declined or expired (ten minutes).
+3. When the poll has **claimed** the link, the window is told to finish: it
+   signs out the session the person made in it, from the page, and exits.
+   Not before the claim: website-main re-checks the approving session there,
+   so a session signed out first burns the link (`400 access_denied`).
 4. A notification, "Signed in to Mauvely as <email>", so a link to an account
    that is not the person's is seen at once. This one is always a
    notification.
@@ -38,9 +32,37 @@ Once per local user, until M2's login fills the same store.
    stdout, into `$XDG_STATE_HOME/mauvely/os.cred` (mode `0600`, in a `0700`
    directory). Its expiry, address and accounts origin are sealed with it.
 
-A link that cannot start, or a code or browser that cannot be shown, puts the
-offer back. A declined or expired one takes the code away, and is offered
-again at the next login.
+**Closing the window is "Later".** It hides and says so, and the broker polls
+once more, in case the person approved just before closing: approved, it is
+claimed and the window finishes as above; otherwise the link ends, and is
+offered again at the next login. A declined or expired link finishes the
+window too.
+
+**"Use your browser instead"**, always under the page, is the way out for a
+sign-in that refuses an embedded browser (Google's does). The window opens
+`<origin>/link` in the default browser, without the code, and shows the code
+for typing there. The link carries on; closing the window then only hides it.
+
+**Without the window**, the offer and the code are what they were before it:
+
+- `mauvely-signin` not installed: a `kdialog` question, "Link this computer
+  to your Mauvely account.", "Open the sign-in page" or "Later". "Open the
+  sign-in page" starts the link, a second window shows the code, and the link
+  page opens in the default browser, through the OpenURI portal, or `xdg-open`
+  when there is none. **The page opens without the code**: whatever opens it
+  puts the address in an argv that every local user can read under `/proc`,
+  and with the code any of them could approve the link for their own account.
+  The code window's OK closes it and nothing else.
+- The window failing to start, or failing later (exiting other than 0, or
+  killed): the code window and the browser, as above, for the same link.
+- `kdialog` missing or failing: notifications. The offer is "Sign in to
+  Mauvely" with one action, "Sign in"; the code is the body of "Enter this
+  code to sign in".
+
+A link that cannot start, or a code that cannot be shown, puts the offer back,
+**as a question** even where the window is installed: the window starts a link
+by itself, and one that cannot start would otherwise start again at once, for
+ever. Once a link starts, the window is the offer again.
 
 The `os` session ends, and the offer comes back, when a mint answers `401`
 (revoked, signed out, expired on the server), when its own expiry passes, or
@@ -48,7 +70,31 @@ when it was sealed for another accounts origin than this computer's now.
 Everything minted from it is forgotten with it. A file that does not unseal is
 kept, in case that passes, and the offer is shown; a new link replaces it.
 
-### The windows
+### The sign-in window
+
+`mauvely-session/src/signin.rs`; the window is os-installer's `signin/`, built
+into the image from `installer.ref`, at `/usr/bin/mauvely-signin`.
+
+| Way | What |
+|---|---|
+| Standard input, line 1 | `{"code":"ABCD-EFGH","origin":"https://mauvely.com"}` |
+| Standard input, then | `finish` and the end of input: sign out from the page, then exit 0. The end of input alone, as when `mauvely-session` exits, is the same |
+| Standard output | `closed`, when the person closes it while it shows the sign-in. It is hidden, and waits for `finish` |
+| Exit status | 0 when finished; anything else, or a signal, is a window that failed |
+
+**The code never reaches an argv.** The window is started with no arguments,
+and reads the code from the pipe. It refuses a code that is not plainly one,
+and so does the broker before sending it. A window still running five seconds
+after `finish` is killed.
+
+The window is contained: an off-the-record profile (nothing reaches the disk),
+no devtools, downloads or permission prompts, and a navigation policy that
+keeps it on the sign-in. Single sign-on's redirects and form posts go
+anywhere; a link the person clicks off the sign-in, or any new window, goes to
+the default browser, and nothing holding the code ever does. os-installer's
+`CLAUDE.md`, "The sign-in window", has the rest.
+
+### The kdialog windows
 
 `mauvely-session/src/dialog.rs`. One window is up at a time: a new one, a
 confirmation or the end of the link takes the old one down, and nothing is
@@ -75,6 +121,25 @@ if it looks like some, which is how the code comes out large, so only a
 string that is plainly a code (letters, digits and `-`, at most 32) is sent;
 anything else is shown in a notification. The cost is a code window with one
 button.
+
+### Milestone 2
+
+Before anything is shown, the broker asks whether the person's login already
+produced an `os` session: `broker::LoginSession`, given to `Broker::new`. In
+milestone 1 nothing does (`NoLoginSession`), so a computer with no stored
+session always gets the window. M2's PAM login fills it: once accounts come
+from the enterprise, signing in to the computer signs it in to Mauvely, and
+the window appears only for a purely local account.
+
+- A login's session is taken only for this computer's accounts origin and
+  before its expiry; otherwise the window is shown as today.
+- It is held for that login, in memory, and not sealed: whether a login's
+  session is kept like a linked one is M2's to decide.
+- A stored, linked session is still read first. Whether a login's session
+  should replace it is M2's too.
+- Tests: `today_no_login_produces_a_session`,
+  `a_session_from_the_login_needs_no_link`,
+  `a_login_session_for_another_server_or_expired_is_not_taken`.
 
 ### The accounts origin
 
@@ -272,10 +337,13 @@ session itself.
   read every argv under `/proc`, approving this computer's link for their own
   account. "Signed in to Mauvely as <email>" shows the account linked, should
   anything else go wrong.
-- **The code reaching kdialog on its standard input** stops the same thing
-  through the window. The offer's argv is fixed text, and the code window's
-  is `--textbox - 380 150`. Passing the code as the text of `--yesno` or
-  `--msgbox` was the simpler window, and was rejected for this reason.
+- **The code reaching the sign-in window and kdialog on their standard
+  input** stops the same thing through the windows. The sign-in window has
+  no arguments at all; kdialog's offer has fixed text, and its code window
+  `--textbox - 380 150`. Passing the code as the text of `--yesno` or
+  `--msgbox` was the simpler window, and was rejected for this reason. The
+  sign-in window also clears the environment that would open a WebEngine
+  debugging port, which listens on localhost for every uid.
 - **`.flatpak-info` read through the caller's root** stops a sandboxed app
   claiming another app's identity. Flatpak writes that file, mounts it
   read-only, and its seccomp filter refuses `unshare` of a user or mount

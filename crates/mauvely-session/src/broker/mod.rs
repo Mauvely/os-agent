@@ -31,20 +31,43 @@ use wire::{Granted, Reason, Request};
 
 use crate::Error;
 
-/// What the broker needs from the graphical session. The offer and the code
-/// are windows where `kdialog` can show them and notifications where it
-/// cannot; either way each replaces the one before.
+/// What the broker needs from the graphical session: the sign-in window
+/// (`mauvely-signin`) where it is installed, and `kdialog` windows, then
+/// notifications, where it is not or fails. Each replaces the one before.
 pub trait Desktop: Send + Sync {
-    /// "Sign in to Mauvely", with a Sign in button.
-    fn offer(&self) -> Result<(), Error>;
-    /// The code to type into the link page.
-    fn show_code(&self, code: &str) -> Result<(), Error>;
-    /// "Signed in to Mauvely as <email>", so a wrong account is seen.
+    /// Offers to link this computer. With the sign-in window there is nothing
+    /// to ask, since it is the sign-in itself, and linking starts at once,
+    /// unless `ask`: then the person is asked first. The broker asks after a
+    /// link that could not start, so that trying again is the person's and
+    /// not a loop.
+    fn offer(&self, ask: bool) -> Result<(), Error>;
+    /// Shows the person the code, and the page to approve it in, which is on
+    /// the accounts origin and does not hold the code: the sign-in window, or
+    /// a code window and the default browser.
+    fn show_link(&self, code: &str, page: &str) -> Result<(), Error>;
+    /// "Signed in to Mauvely as <email>", so a wrong account is seen. The link
+    /// has been claimed by now, so the sign-in window may sign its own session
+    /// out.
     fn signed_in(&self, email: &str) -> Result<(), Error>;
     /// Takes the code away once it is no use.
     fn withdraw(&self);
-    /// Opens `url` in the person's default browser.
-    fn open(&self, url: &str) -> Result<(), Error>;
+}
+
+/// Milestone 2's seam: the `os` session the person's login produced, if it
+/// produced one. Once accounts come from the enterprise, signing in to the
+/// computer signs it in to Mauvely, and only a purely local account is ever
+/// offered the sign-in window. `docs/broker.md`, "Milestone 2".
+pub trait LoginSession: Send + Sync {
+    fn session(&self) -> Option<OsSession>;
+}
+
+/// Milestone 1: no login produces a session, so linking is always offered.
+pub struct NoLoginSession;
+
+impl LoginSession for NoLoginSession {
+    fn session(&self) -> Option<OsSession> {
+        None
+    }
 }
 
 /// Time, so tests need not wait for it.
@@ -91,6 +114,7 @@ pub struct Broker {
     hostname: String,
     desktop: Box<dyn Desktop>,
     clock: Box<dyn Clock>,
+    login: Box<dyn LoginSession>,
     /// The `os` session. Its lock also covers the file, so a link and a
     /// sign-out never interleave there.
     os: Mutex<Option<OsSession>>,
@@ -99,6 +123,10 @@ pub struct Broker {
     cache: Mutex<HashMap<String, Slot>>,
     linking: AtomicBool,
     offer_wanted: AtomicBool,
+    /// The last link could not start: ask before starting another.
+    ask_first: AtomicBool,
+    /// The person closed the sign-in window during the link.
+    closed: AtomicBool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -114,6 +142,7 @@ impl Broker {
         hostname: String,
         desktop: Box<dyn Desktop>,
         clock: Box<dyn Clock>,
+        login: Box<dyn LoginSession>,
     ) -> Self {
         Broker {
             accounts,
@@ -121,10 +150,13 @@ impl Broker {
             hostname,
             desktop,
             clock,
+            login,
             os: Mutex::new(None),
             cache: Mutex::new(HashMap::new()),
             linking: AtomicBool::new(false),
             offer_wanted: AtomicBool::new(false),
+            ask_first: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -160,7 +192,28 @@ impl Broker {
             Ok(None) => {}
             Err(e) => eprintln!("mauvely-session: broker: {e}"),
         }
+        // Before anything is shown: a session the login made needs no link.
+        if let Some(s) = self.login_session() {
+            eprintln!("mauvely-session: broker: signed in by the login");
+            *os = Some(s);
+            return;
+        }
         self.offer_wanted.store(true, Ordering::SeqCst);
+    }
+
+    /// The login's session, when it is for this accounts origin and has not
+    /// expired. Held for this login only: whether a login's session is
+    /// sealed like a linked one is milestone 2's to decide.
+    fn login_session(&self) -> Option<OsSession> {
+        let s = self.login.session()?;
+        if s.origin != self.accounts.origin() || s.expires_at <= self.clock.now() {
+            eprintln!(
+                "mauvely-session: broker: the login's session is not for {:?}, or has expired",
+                self.accounts.origin()
+            );
+            return None;
+        }
+        Some(s)
     }
 
     /// Shows the link offer if one is due and nothing has made it moot.
@@ -171,7 +224,7 @@ impl Broker {
         if !self.offer_wanted.swap(false, Ordering::SeqCst) {
             return;
         }
-        if let Err(e) = self.desktop.offer() {
+        if let Err(e) = self.desktop.offer(self.ask_first.load(Ordering::SeqCst)) {
             eprintln!("mauvely-session: broker: could not offer to sign in: {e}");
             self.offer_wanted.store(true, Ordering::SeqCst);
         }
@@ -340,8 +393,11 @@ impl Broker {
                 }
             }
             Err(Link::NotStarted(e)) => {
-                // The person asked and nothing happened, so ask again.
+                // Nothing happened, so offer again, as a question: the sign-in
+                // window starts a link by itself, and one that cannot start
+                // would otherwise start again at once, for ever.
                 eprintln!("mauvely-session: broker: could not start signing in: {e}");
+                self.ask_first.store(true, Ordering::SeqCst);
                 self.offer_wanted.store(true, Ordering::SeqCst);
                 self.offer_if_wanted();
             }
@@ -358,14 +414,13 @@ impl Broker {
             "" => "Mauvely OS".to_owned(),
             host => format!("Mauvely OS on {host}"),
         };
+        self.closed.store(false, Ordering::SeqCst);
         let started = self.accounts.start(&name).map_err(Link::NotStarted)?;
         // The code is shown to the person, never put in the page's address.
         self.desktop
-            .show_code(&started.user_code)
+            .show_link(&started.user_code, &started.link)
             .map_err(|e| Link::NotStarted(format!("showing the code: {e}")))?;
-        self.desktop
-            .open(&started.link)
-            .map_err(|e| Link::NotStarted(format!("opening the browser: {e}")))?;
+        self.ask_first.store(false, Ordering::SeqCst);
         let deadline = self.clock.now() + started.expires_in;
         let mut interval = started.interval;
         loop {
@@ -373,17 +428,27 @@ impl Broker {
             if self.clock.now() > deadline {
                 return Err(Link::Ended("expired_token".into()));
             }
+            // Closed by the person: one more poll, in case they approved
+            // just before, then it is over.
+            let closed = self.closed.swap(false, Ordering::SeqCst);
             match self.accounts.poll(&started.device_code) {
-                Poll::Pending | Poll::Retry => {}
-                Poll::SlowDown => interval = interval.max(15),
-                Poll::Stop(code) => return Err(Link::Ended(code)),
                 Poll::Done(minted) => {
                     let email = minted.email.clone();
                     self.adopt(OsSession::new(minted, self.accounts.origin()));
                     return Ok(email);
                 }
+                Poll::Stop(code) => return Err(Link::Ended(code)),
+                _ if closed => return Err(Link::Ended("closed".into())),
+                Poll::Pending | Poll::Retry => {}
+                Poll::SlowDown => interval = interval.max(15),
             }
         }
+    }
+
+    /// The person closed the sign-in window: "Later". The link ends after
+    /// one more poll, and is offered again at the next login.
+    pub fn closed(&self) {
+        self.closed.store(true, Ordering::SeqCst);
     }
 
     /// Takes a new `os` session. One that cannot be sealed is still used

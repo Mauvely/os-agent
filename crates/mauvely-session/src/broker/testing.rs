@@ -11,7 +11,7 @@ use super::accounts::Accounts;
 use super::caller::{Caller, Sandbox};
 use super::seal::tests::{FakeSeal, temp_dir};
 use super::seal::{OsSession, Store};
-use super::{Broker, Clock, Desktop};
+use super::{Broker, Clock, Desktop, LoginSession, NoLoginSession};
 use crate::Error;
 
 /// The fake clock's start.
@@ -45,21 +45,34 @@ pub fn firefox() -> Caller {
 #[derive(Default)]
 pub struct FakeDesktop {
     pub offers: AtomicUsize,
+    /// Each offer's `ask`.
+    pub asks: Mutex<Vec<bool>>,
     pub codes: Mutex<Vec<String>>,
     pub signed_in: Mutex<Vec<String>>,
     pub withdrawn: AtomicUsize,
+    /// The pages shown with the codes.
     pub opened: Mutex<Vec<String>>,
     pub open_fails: AtomicBool,
+    /// Run when the code is shown, as the person would act on it.
+    pub on_show: Mutex<Option<Box<dyn Fn() + Send>>>,
 }
 
 impl Desktop for Arc<FakeDesktop> {
-    fn offer(&self) -> Result<(), Error> {
+    fn offer(&self, ask: bool) -> Result<(), Error> {
         self.offers.fetch_add(1, Ordering::SeqCst);
+        self.asks.lock().unwrap().push(ask);
         Ok(())
     }
 
-    fn show_code(&self, code: &str) -> Result<(), Error> {
+    fn show_link(&self, code: &str, page: &str) -> Result<(), Error> {
+        if self.open_fails.load(Ordering::SeqCst) {
+            return Err("no browser".into());
+        }
         self.codes.lock().unwrap().push(code.into());
+        self.opened.lock().unwrap().push(page.into());
+        if let Some(f) = &*self.on_show.lock().unwrap() {
+            f();
+        }
         Ok(())
     }
 
@@ -71,13 +84,14 @@ impl Desktop for Arc<FakeDesktop> {
     fn withdraw(&self) {
         self.withdrawn.fetch_add(1, Ordering::SeqCst);
     }
+}
 
-    fn open(&self, url: &str) -> Result<(), Error> {
-        if self.open_fails.load(Ordering::SeqCst) {
-            return Err("no browser".into());
-        }
-        self.opened.lock().unwrap().push(url.into());
-        Ok(())
+/// A login that produced `0`, or nothing.
+pub struct FakeLogin(pub Option<OsSession>);
+
+impl LoginSession for FakeLogin {
+    fn session(&self) -> Option<OsSession> {
+        self.0.clone()
     }
 }
 
@@ -217,6 +231,16 @@ impl Fixture {
 
     /// `{BASE}` as a stored session's origin is the fake server's.
     pub fn with(replies: Vec<(u16, String)>, stored: Option<OsSession>) -> Self {
+        Self::with_login(replies, stored, None)
+    }
+
+    /// As `with`, and the login produced `login` (`{BASE}` as its origin is
+    /// the fake server's).
+    pub fn with_login(
+        replies: Vec<(u16, String)>,
+        stored: Option<OsSession>,
+        login: Option<OsSession>,
+    ) -> Self {
         let server = FakeServer::start(replies);
         let dir = temp_dir("broker");
         let store = dir.join("mauvely/os.cred");
@@ -229,6 +253,13 @@ impl Fixture {
                 .save(s)
                 .unwrap();
         }
+        let login: Box<dyn LoginSession> = match login {
+            Some(mut s) => {
+                s.origin = s.origin.replace("{BASE}", &server.base);
+                Box::new(FakeLogin(Some(s)))
+            }
+            None => Box::new(NoLoginSession),
+        };
         let desktop = Arc::new(FakeDesktop::default());
         let clock = Arc::new(FakeClock(AtomicU64::new(NOW)));
         let broker = Arc::new(Broker::new(
@@ -237,6 +268,7 @@ impl Fixture {
             "testhost".into(),
             Box::new(Arc::clone(&desktop)),
             Box::new(Arc::clone(&clock)),
+            login,
         ));
         broker.load();
         Fixture {

@@ -1,5 +1,93 @@
 # Handoff
 
+## 2026-10-22: the sign-in window
+
+`mauvely-session` now links the computer through `mauvely-signin`, os-installer's
+new `signin/` (`95de683`), a frameless Mauvely window around website-main's
+`/link?code=<code>&embed=os`. The kdialog windows and the notifications are its
+fallbacks, unchanged. `docs/broker.md`, "Linking", has the flow;
+`crates/mauvely-session/src/signin.rs` the process side. `cargo test` passes
+(mauvely-session 113, mauvelyd 64 + 1 + 1), five runs in a row; clippy and fmt
+are clean; `cargo build --release --locked` builds and `Cargo.lock` is
+unchanged. No crate is new.
+
+### What changed
+
+- **`signin`**: starts `/usr/bin/mauvely-signin` with no arguments, writes
+  `{"code","origin"}` and a newline on its stdin and keeps the pipe; reads
+  `closed` from its stdout ("Later"); `finish()` writes `finish` and closes
+  the pipe, and kills it five seconds later if it is still there. Exit 0 not
+  asked for is "Later"; anything else, or a signal, is a failure.
+- **`broker::Desktop`**: `offer(ask)` and `show_link(code, page)` replace
+  `offer()`, `show_code()` and `open()`. With the window installed the offer
+  starts the link at once, since the window is the offer and the code;
+  `show_link` opens the window, or the kdialog code window and the browser.
+- **The window finishes only after the claim**: from `signed_in` (the poll has
+  claimed the link) and `withdraw` (declined, expired, closed). website-main
+  re-checks the approving session at the claim, so the window's sign-out must
+  come after it, or the link is burnt with `400 access_denied` (website-main
+  `1379948`, docs/AUTH-BROKER.md, "The sign-in window").
+- **Closing the window** sets `Broker::closed()`: the poll loop polls once
+  more, claims a link approved just before, and otherwise ends it ("signing in
+  ended: closed"), not offered again this login.
+- **A link that could not start re-offers as a question** (`ask_first`), even
+  with the window installed. Without that, a server unreachable at login
+  would start a link, fail, and start again in a tight loop. Cleared once a
+  link starts.
+- **The fallback chain:** window not installed, the kdialog question then the
+  kdialog code window and the browser, as before; window failing to start or
+  later, the kdialog code window and the browser for the same link; kdialog
+  missing or failing, notifications.
+- **The milestone 2 seam:** `broker::LoginSession` (`NoLoginSession` today),
+  asked in `Broker::load` before anything is shown. A session for this origin
+  that has not expired is held for that login and nothing is offered.
+  `docs/broker.md`, "Milestone 2", says what is left to M2.
+- **`MAUVELY_SIGNIN`** moves the program, in debug builds only.
+
+### Verified how
+
+- Tests, with `fixtures/fake-signin.sh`: the first line and no argv or
+  environment holding the code; finish as a line then the end of input, not
+  reported; the end of input alone when the session goes; close is Later and
+  the window waits to be finished; exits and crashes; a window that will not
+  finish is killed; a new window finishes the old; not installed. Broker:
+  ask-first after a failed start and cleared after a good one; close ends the
+  link after one more poll; a link approved just before the close is still
+  claimed; the login seam (taken, and refused for another origin or expired).
+  Sabotaged one at a time, and a test failed for each: no `ask_first`, no
+  final poll, no origin check on the login's session.
+- **End to end** in the nested sway, harness in the session scratchpad
+  (`signin-e2e/e2e/`, not committed): the debug `mauvely-session`, the real
+  `mauvely-signin`, a fake accounts service on 127.0.0.1:8787 in a private
+  network namespace, a private bus with no activation, a fake notification
+  server, the real `systemd-creds --user` and `kdialog`. It showed:
+  1. the window opening on its own at start, with the code; no process's argv
+     or environment held the code, the window's WebEngine children included;
+  2. sign-in, approve: the claim, then the window's sign-out carrying its
+     cookie, the window gone, "Signed in to Mauvely as e2e@example.invalid",
+     `os.cred` 0600;
+  3. close without approving: one more poll, "signing in ended: closed", the
+     window finished, nothing re-offered;
+  4. approve and close at once, with an 8 s poll interval: the hidden window
+     waited, the next poll claimed, then it signed out;
+  5. a window that starts and exits 1: the kdialog code window (stdin, argv
+     `--textbox - 380 150`) and `xdg-open` given `/link` without the code;
+  6. no window installed: the kdialog question.
+
+### Never run
+
+- On Plasma or Mauvely OS, or against website-main's real pages. The image
+  carrying it is built (os-image) and not booted.
+- A real single sign-on, Google's refusal of embedded sign-in, passkeys.
+
+### Found, not changed
+
+- **A kdialog window outlives `mauvely-session`** when the session is killed:
+  `dialog` never kills its child on exit. At a real logout the compositor
+  goes, which should take kdialog with it, so it likely shows only in a
+  harness. The sign-in window does not outlive it: its stdin closes and it
+  finishes.
+
 ## 2026-10-21, late: bootc leaks mounts inside the service's sandbox
 
 **Every `bootc` command now runs in PID 1's mount namespace**

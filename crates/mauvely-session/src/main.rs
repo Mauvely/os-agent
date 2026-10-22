@@ -5,14 +5,15 @@
 //! - when an update is staged, it says once that a restart finishes it, and
 //!   restarts when asked (brief 22, U2);
 //! - it is the sign-in broker: it links this computer to the person's
-//!   Mauvely account once, then signs the Mauvely apps and the browsers in
-//!   from that (brief 22, S2, in `broker`);
+//!   Mauvely account once, in the sign-in window (`signin`), then signs the
+//!   Mauvely apps and the browsers in from that (brief 22, S2, in `broker`);
 //! - when the agent has installed an app, it says once that the app is ready,
 //!   and opens it when asked (`ready`).
 
 mod broker;
 mod dialog;
 mod ready;
+mod signin;
 mod staged;
 
 use std::collections::HashMap;
@@ -27,8 +28,9 @@ use zbus::zvariant::{OwnedObjectPath, Value};
 
 use broker::accounts::{self, Accounts};
 use broker::seal::{Store, SystemdCreds};
-use broker::{Broker, RealClock, peer, socket};
+use broker::{Broker, NoLoginSession, RealClock, peer, socket};
 use dialog::{Answer, Dialogs};
+use signin::{Ended, Signin};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -115,17 +117,22 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let shown = Arc::new(AtomicU32::new(0));
     let offered = Arc::new(AtomicU32::new(0));
     let clicks = notifications.receive_action_invoked()?;
-    let (accepted, accepts) = mpsc::channel();
-    let broker = start_broker(&session, &notifications, &offered, &state, accepted);
+    let (asked, answers) = mpsc::channel();
+    let broker = start_broker(&session, &notifications, &offered, &state, asked);
 
-    // "Open the sign-in page" in the offer window: the same as the Sign in
-    // button of the notification the window stands in for.
-    let accepting = broker.clone();
+    // The sign-in window opening, or "Open the sign-in page" in the offer
+    // window (the same as the Sign in button of the notification it stands
+    // in for); or the sign-in window closed.
+    let answering = broker.clone();
     std::thread::spawn(move || {
-        for () in accepts {
-            if let Some(broker) = &accepting {
-                let broker = Arc::clone(broker);
-                std::thread::spawn(move || broker.link());
+        for answer in answers {
+            let Some(broker) = &answering else { continue };
+            match answer {
+                Asked::Link => {
+                    let broker = Arc::clone(broker);
+                    std::thread::spawn(move || broker.link());
+                }
+                Asked::Later => broker.closed(),
             }
         }
     });
@@ -262,7 +269,7 @@ fn start_broker(
     notifications: &NotificationsProxy<'static>,
     offered: &Arc<AtomicU32>,
     state: &Path,
-    accepted: mpsc::Sender<()>,
+    asked: mpsc::Sender<Asked>,
 ) -> Option<Arc<Broker>> {
     let started = (|| -> Result<Arc<Broker>, Error> {
         let path = config_dir().join("server");
@@ -270,21 +277,25 @@ fn start_broker(
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let origin = accounts::origin_for(&server)?;
         let runtime = absolute("XDG_RUNTIME_DIR").ok_or("XDG_RUNTIME_DIR is not set")?;
-        let desktop = SessionDesktop {
+        let desktop = Arc::new(SessionDesktop {
             notice: Notice {
                 notifications: notifications.clone(),
                 offered: Arc::clone(offered),
             },
             portal: OpenUriProxy::new(session).ok(),
+            signin: Signin::new(signin_program()),
+            origin: origin.clone(),
             dialogs: Dialogs::new(dialog::PROGRAM),
-            accepted,
-        };
+            asked,
+        });
         let broker = Arc::new(Broker::new(
             Accounts::new(&origin),
             Store::new(state.join("mauvely/os.cred"), Box::new(SystemdCreds)),
             hostname(),
             Box::new(desktop),
             Box::new(RealClock),
+            // Milestone 2's login fills this.
+            Box::new(NoLoginSession),
         ));
         broker.load();
         let serving = Arc::clone(&broker);
@@ -301,14 +312,26 @@ fn start_broker(
         .ok()
 }
 
-/// The broker's way into the graphical session. The offer and the code are
-/// windows (`dialog`); where kdialog cannot show one, they are notifications.
+/// What the session tells the broker about the sign-in.
+enum Asked {
+    /// Start a link: the sign-in window is opening, or the person picked
+    /// "Open the sign-in page".
+    Link,
+    /// The person closed the sign-in window.
+    Later,
+}
+
+/// The broker's way into the graphical session, best first: the sign-in
+/// window (`signin`), which is the offer and the code at once; `kdialog`
+/// windows for the offer and the code (`dialog`); notifications.
 struct SessionDesktop {
     notice: Notice,
     portal: Option<OpenUriProxy<'static>>,
+    signin: Signin,
+    /// The accounts origin, for the sign-in window.
+    origin: String,
     dialogs: Dialogs,
-    /// Told when the person picks "Open the sign-in page".
-    accepted: mpsc::Sender<()>,
+    asked: mpsc::Sender<Asked>,
 }
 
 /// The sign-in notifications, which replace one another.
@@ -347,34 +370,7 @@ impl Notice {
     }
 }
 
-impl broker::Desktop for SessionDesktop {
-    /// A window with two buttons. "Later" and closing it leave things as
-    /// dismissing the notification did.
-    fn offer(&self) -> Result<(), Error> {
-        let accepted = self.accepted.clone();
-        let notice = self.notice.clone();
-        let shown = self.dialogs.offer(move |answer| match answer {
-            Answer::Accepted => {
-                let _ = accepted.send(());
-            }
-            Answer::Dismissed => {}
-            // kdialog crashed with nothing shown.
-            Answer::Failed => {
-                eprintln!("mauvely-session: the sign-in window failed");
-                if let Err(e) = notice.offer() {
-                    eprintln!("mauvely-session: {e}");
-                }
-            }
-        });
-        match shown {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                eprintln!("mauvely-session: no sign-in window: {e}");
-                self.notice.offer()
-            }
-        }
-    }
-
+impl SessionDesktop {
     /// A window that stays while the person types the code. The code goes to
     /// kdialog on its standard input, never in an argv (`dialog`).
     fn show_code(&self, code: &str) -> Result<(), Error> {
@@ -391,26 +387,6 @@ impl broker::Desktop for SessionDesktop {
                 eprintln!("mauvely-session: no code window: {e}");
                 self.notice.code(code)
             }
-        }
-    }
-
-    /// The window goes, and the confirmation is a notification.
-    fn signed_in(&self, email: &str) -> Result<(), Error> {
-        self.dialogs.close();
-        let summary = match email {
-            "" => "Signed in to Mauvely".to_owned(),
-            email => format!("Signed in to Mauvely as {email}"),
-        };
-        self.notice.show(&summary, "", &[], -1)
-    }
-
-    fn withdraw(&self) {
-        self.dialogs.close();
-        let id = self.notice.offered.load(Ordering::Relaxed);
-        if id != 0
-            && let Err(e) = self.notice.notifications.close_notification(id)
-        {
-            eprintln!("mauvely-session: could not take the code away: {e}");
         }
     }
 
@@ -433,6 +409,101 @@ impl broker::Desktop for SessionDesktop {
             return Err(format!("xdg-open: {status}").into());
         }
         Ok(())
+    }
+
+    /// The code window, then the page in the browser: the way before the
+    /// sign-in window, and its fallback.
+    fn show_code_and_open(&self, code: &str, page: &str) -> Result<(), Error> {
+        self.show_code(code)?;
+        self.open(page)
+    }
+}
+
+impl broker::Desktop for Arc<SessionDesktop> {
+    /// The sign-in window is the offer: it shows the real sign-in, so the link
+    /// starts at once and the window opens with its code. Without the window,
+    /// or when `ask`, a window with two buttons, where "Later" and closing it
+    /// leave things as dismissing the notification did.
+    fn offer(&self, ask: bool) -> Result<(), Error> {
+        if !ask && self.signin.available() {
+            return self
+                .asked
+                .send(Asked::Link)
+                .map_err(|_| "the session is stopping".into());
+        }
+        let asked = self.asked.clone();
+        let notice = self.notice.clone();
+        let shown = self.dialogs.offer(move |answer| match answer {
+            Answer::Accepted => {
+                let _ = asked.send(Asked::Link);
+            }
+            Answer::Dismissed => {}
+            // kdialog crashed with nothing shown.
+            Answer::Failed => {
+                eprintln!("mauvely-session: the sign-in window failed");
+                if let Err(e) = notice.offer() {
+                    eprintln!("mauvely-session: {e}");
+                }
+            }
+        });
+        match shown {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("mauvely-session: no sign-in window: {e}");
+                self.notice.offer()
+            }
+        }
+    }
+
+    /// The sign-in window, with the code on its standard input. When it is
+    /// not installed, cannot start, or fails later, the code window and the
+    /// browser, as before it.
+    fn show_link(&self, code: &str, page: &str) -> Result<(), Error> {
+        if self.signin.available() {
+            let desktop = Arc::clone(self);
+            let (code_, page_) = (code.to_owned(), page.to_owned());
+            let shown = self
+                .signin
+                .show(code, &self.origin, move |ended| match ended {
+                    Ended::Later => {
+                        let _ = desktop.asked.send(Asked::Later);
+                    }
+                    Ended::Failed => {
+                        eprintln!("mauvely-session: the sign-in window failed");
+                        if let Err(e) = desktop.show_code_and_open(&code_, &page_) {
+                            eprintln!("mauvely-session: {e}");
+                        }
+                    }
+                });
+            match shown {
+                Ok(()) => return Ok(()),
+                Err(e) => eprintln!("mauvely-session: no sign-in window: {e}"),
+            }
+        }
+        self.show_code_and_open(code, page)
+    }
+
+    /// The link is claimed: the sign-in window signs its own session out and
+    /// goes, and the confirmation is a notification.
+    fn signed_in(&self, email: &str) -> Result<(), Error> {
+        self.signin.finish();
+        self.dialogs.close();
+        let summary = match email {
+            "" => "Signed in to Mauvely".to_owned(),
+            email => format!("Signed in to Mauvely as {email}"),
+        };
+        self.notice.show(&summary, "", &[], -1)
+    }
+
+    fn withdraw(&self) {
+        self.signin.finish();
+        self.dialogs.close();
+        let id = self.notice.offered.load(Ordering::Relaxed);
+        if id != 0
+            && let Err(e) = self.notice.notifications.close_notification(id)
+        {
+            eprintln!("mauvely-session: could not take the code away: {e}");
+        }
     }
 }
 
@@ -468,6 +539,20 @@ fn config_dir() -> PathBuf {
         std::env::var_os("MAUVELY_CONFIG_DIR"),
         cfg!(debug_assertions),
     )
+}
+
+/// `/usr/bin/mauvely-signin`.
+fn signin_program() -> PathBuf {
+    signin_program_from(std::env::var_os("MAUVELY_SIGNIN"), cfg!(debug_assertions))
+}
+
+/// `MAUVELY_SIGNIN` moves it in a debug build only, for the same reason as
+/// `MAUVELY_CONFIG_DIR`: in a release build the environment would choose the
+/// program the code is handed to.
+fn signin_program_from(env: Option<std::ffi::OsString>, honour: bool) -> PathBuf {
+    env.filter(|v| honour && !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(signin::PROGRAM))
 }
 
 /// `MAUVELY_CONFIG_DIR` moves it in a debug build only. In a release build
@@ -517,6 +602,23 @@ mod tests {
         assert_eq!(
             config_dir_from(Some("".into()), true),
             Path::new("/etc/mauvely")
+        );
+    }
+
+    #[test]
+    fn the_signin_program_moves_only_in_debug_builds() {
+        let moved = Some(std::ffi::OsString::from("/tmp/fake-signin"));
+        assert_eq!(
+            signin_program_from(moved.clone(), true),
+            Path::new("/tmp/fake-signin")
+        );
+        assert_eq!(
+            signin_program_from(moved, false),
+            Path::new("/usr/bin/mauvely-signin")
+        );
+        assert_eq!(
+            signin_program_from(None, true),
+            Path::new("/usr/bin/mauvely-signin")
         );
     }
 

@@ -39,7 +39,8 @@ A Cargo workspace with two crates:
 |---|---|
 | `staged` | Whether an update is staged, and saying so once |
 | `ready` | "<App> is ready": the agent's `/run/mauvely/installed.json`, what this person has been told, and Open |
-| `dialog` | The sign-in offer and code as `kdialog` windows; the code goes to kdialog on stdin |
+| `signin` | The sign-in window, `/usr/bin/mauvely-signin` (os-installer's `signin/`): started with the code on stdin, told to finish after the claim, `closed` read back |
+| `dialog` | The sign-in offer and code as `kdialog` windows, where the sign-in window is missing or fails; the code goes to kdialog on stdin |
 | `broker::caller` | Who may ask the broker for what, pure |
 | `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info`, its `/app` on disk, the deploy's remote |
 | `broker::wire`, `broker::socket` | Suite's framing; the socket and a thread per caller |
@@ -65,8 +66,16 @@ A Cargo workspace with two crates:
   argument or a file. The broker's session types print `<redacted>` for
   `{:?}`.
 - **The device-link code never reaches an argv or a URL**, which every local
-  user can read, and with it approve the link for their own account. The code
-  window is `kdialog --textbox -`, fed on stdin (`dialog`).
+  user can read, and with it approve the link for their own account. The
+  sign-in window gets it as a JSON line on stdin and has no arguments
+  (`signin`); the kdialog code window is `kdialog --textbox -`, fed on stdin
+  (`dialog`). Only the sign-in window's own page carries it in its address,
+  inside its own process.
+- **The sign-in window signs its session out only after the claim.**
+  website-main re-checks the approving session when the broker's poll claims
+  the link, so `finish` comes from `signed_in` and `withdraw`, never earlier.
+- **`MAUVELY_SIGNIN` moves `/usr/bin/mauvely-signin` in debug builds only**,
+  like `MAUVELY_CONFIG_DIR`.
 - **`cargo test` must pass** without root, a TPM, flatpak or network.
   `cargo clippy --all-targets -- -D warnings` stays clean; code is
   `cargo fmt`-formatted.
