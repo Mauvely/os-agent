@@ -17,15 +17,18 @@ native host of the Mauvely OS browser extension (`browser/`,
 `crates/mauvely-browser-host`, `docs/browser.md`), which sets the
 `mauvely_session` cookie from the computer's link.
 
-The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
-talk only to the daemon over a local socket, never to the network.
+People sign in at the login screen with their Mauvely account (milestone
+2): `pam_mauvely` asks `mauvelyd login` over `/run/mauvely/auth.sock`, never
+the network, and the login service checks online, keeps an offline cache,
+writes the person's userdb records and hands their session to
+`mauvely-session` (`docs/login.md`).
 
 Written in Rust. Licensed under the GNU GPL, version 3 or later.
 
 ## Build and test
 
 ```sh
-cargo build --release          # target/release/mauvelyd and mauvely-session
+cargo build --release          # mauvelyd, mauvely-session, libpam_mauvely.so
 cargo test                     # no root, TPM, flatpak or network needed
 cargo clippy --all-targets -- -D warnings
 node --test browser/extension/test/*.test.cjs   # the browser extension
@@ -44,6 +47,7 @@ cargo build --release --locked -p mauvely-browser-host --target x86_64-unknown-l
 
 ```sh
 mauvelyd run       # the service: enrol if needed, then check in
+mauvelyd login     # the login service, on /run/mauvely/auth.sock
 mauvelyd enrol     # one enrolment attempt, in the foreground
 mauvelyd status    # device, organisation, server and last check-in
 ```
@@ -76,6 +80,8 @@ Enrolment itself needs root, because sealing the key does.
 |---|---|
 | Binary | `/usr/bin/mauvelyd` |
 | Unit | `/usr/lib/systemd/system/mauvelyd.service`, enabled |
+| Login unit | `/usr/lib/systemd/system/mauvely-login.service`, enabled |
+| PAM module | `target/release/libpam_mauvely.so` as `/usr/lib64/security/pam_mauvely.so` |
 | Session binary | `/usr/bin/mauvely-session` |
 | Session unit | `/usr/lib/systemd/user/mauvely-session.service`, enabled globally (`systemctl --global enable`) |
 | Tools it runs | `flatpak`, `bootc`, `rpm-ostree`, `systemd-creds` |

@@ -25,9 +25,14 @@ exactly as before.
 
 ## Layout
 
-A Cargo workspace with three crates, and the browser extension beside it:
+A Cargo workspace with four crates, and the browser extension beside it:
 - `crates/mauvelyd`: a library holding the logic and a thin binary
-  (`main.rs`). The service unit is `dist/mauvelyd.service`.
+  (`main.rs`). The service unit is `dist/mauvelyd.service`. `mauvelyd login`
+  is the login service (brief 26), in a unit of its own,
+  `dist/mauvely-login.service`: `docs/login.md`.
+- `crates/pam-mauvely`: `pam_mauvely`, a `cdylib` built to
+  `target/release/libpam_mauvely.so`, which talks to the login service and
+  nothing else (`docs/login.md`).
 - `crates/mauvely-session`: a binary, run as the person by the user unit
   `dist/mauvely-session.service`. It tells them when a restart finishes an
   update (brief 22, U2), is the sign-in broker (S2): `docs/broker.md`, and
@@ -52,6 +57,7 @@ A Cargo workspace with three crates, and the browser extension beside it:
 | `desktop` | Brief 25's desktop policy as KDE Kiosk files in `/var/lib/mauvely-desktop/` (`xdg/kdeglobals`, which the image puts in `XDG_CONFIG_DIRS`, and `policy.json` for mauvely-session) |
 | `agent` | Enrolment, one check-in (`Agent::tick`) and the service loop (`run`) |
 | `push` | The push channel: one thread on a blocking `tungstenite` socket (TLS is rustls on ring with webpki-roots, as `ureq`), reconnecting on `schedule`'s backoff, and `Wake`, what `run` sleeps on: its interval, cut short by `{"t":"checkin"}` but never within 5 s of the last check-in, and never during a backoff |
+| `login` | The login service: `wire` (the protocol), `socket` (`SO_PEERCRED`, limits, a thread per connection), `service` (the rules of `auth`, `code` and `account`), `people` (`desired.people` and the greeter's file), `names` (usernames, NSS), `door` (website-devices' login door, website-main's KDF upgrade), `kdf` (Argon2id), `cache` (the sealed offline cache), `userdb` (`/etc/userdb` drop-ins), `handoff` (`/run/mauvely/login/<uid>`) |
 | `state`, `facts`, `schedule` | Files on disk (`/etc/mauvely`, `/var/lib/mauvely`, and `/run/mauvely/installed.json`, which everyone reads), hardware facts, backoff and jitter |
 | `fake` | Test doubles and a `tiny_http` fake server, test builds only |
 
@@ -69,6 +75,7 @@ A Cargo workspace with three crates, and the browser extension beside it:
 | `broker::peer` | Finding the caller: `SO_PEERCRED`, `SO_PEERPIDFD`, `/proc/<pid>/root/.flatpak-info`, its `/app` on disk, the deploy's remote |
 | `broker::wire`, `broker::socket` | Suite's framing; the socket and a thread per caller |
 | `broker::accounts`, `broker::seal` | website-main's device link and mints; the `os` session at rest |
+| `broker::login` | The `os` session a Mauvely login made, handed over by `mauvelyd` |
 | `broker::testing` | Test doubles and a `tiny_http` fake server, test builds only |
 
 ## Rules
@@ -82,10 +89,41 @@ A Cargo workspace with three crates, and the browser extension beside it:
   reaches an argv (`command::operand`).
 - **Only `--system` Flatpak commands.** A user's `--user` installs are never
   listed or touched.
-- **PAM and NSS modules never touch the network** (milestone 2). They talk to
-  the daemon over its socket, and they fail fast and closed when it does not
-  answer.
-- **Never log a device key, an enrolment token or a session token.** The
+- **`pam_mauvely` never touches the network, opens no file and starts no
+  thread.** It talks to `/run/mauvely/auth.sock` and fails fast and closed
+  (`PAM_AUTHINFO_UNAVAIL`) when the daemon is missing or silent. No panic
+  crosses into C (`catch_unwind`), every FFI call has its `SAFETY` comment,
+  and our copies of the password and code are wiped. `PAM_AUTHTOK` stays
+  set for the wallet modules after it. Its `socket=` argument works in debug
+  builds only.
+- **The login socket's rules** (`docs/login.md`):
+  - who asks is `SO_PEERCRED`'s effective uid: root about anyone, any other
+    uid only about the person whose uid it is, and only root for
+    `plasmalogin`;
+  - **only `plasmalogin` goes online, and only it asks for a code.** Every
+    other service checks the offline cache and never the server;
+  - **the cache only when the server cannot be reached**, at the login
+    screen, within its `offlineDays`: never after a refusal;
+  - the device's say (`desired.people`) before anything is sent;
+  - the cache's verifier is never the `authSecret`, and the cache is never
+    sent anywhere;
+  - a name NSS knows that is not ours is `not_mauvely` (`PAM_IGNORE`); a name
+    on no list is never ignored;
+  - the field names and reasons are fixed: os-image's greeter and session
+    rely on them. Add, never rename.
+  - Each rule has a test that fails when it is broken; change a rule with its
+    test.
+- **`mauvelyd login` runs in its own unit, before the display manager**, and
+  never waits for the network: the agent's unit does. They share files, not
+  memory.
+- **`tests/vectors/kdf.json` is a copy of website-main's
+  `shared/vectors/kdf.json`.** Do not edit it here; copy it over when it
+  changes.
+- **userdb records are ours only with `"service": "com.mauvely.Users"`.**
+  Nothing touches a record without it, and a uid or name another account has
+  is never taken over.
+- **Never log a device key, an enrolment token, a session token, a password
+  or a code.** The
   seed and the `os` session travel to `systemd-creds` over stdin, never as an
   argument or a file. The broker's session types print `<redacted>` for
   `{:?}`.
@@ -100,7 +138,8 @@ A Cargo workspace with three crates, and the browser extension beside it:
   the link, so `finish` comes from `signed_in` and `withdraw`, never earlier.
 - **`MAUVELY_SIGNIN` moves `/usr/bin/mauvely-signin` in debug builds only**,
   like `MAUVELY_CONFIG_DIR`.
-- **`cargo test` must pass** without root, a TPM, flatpak or network.
+- **`cargo test` must pass** without root, a TPM, flatpak, PAM or network.
+  `tests/login/` holds the real PAM runs (local, and in Kinoite with podman).
   `cargo clippy --all-targets -- -D warnings` stays clean; code is
   `cargo fmt`-formatted.
 - **No async runtime.** It is one loop, and it blocks. `mauvely-session` uses

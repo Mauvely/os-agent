@@ -10,7 +10,8 @@ already speak.
 
 ## Linking
 
-Once per local user, until M2's login fills the same store (below).
+Once per local user, unless a Mauvely login has filled the same store
+(below).
 
 1. At each graphical login with no `os` session, the broker starts a device
    link as client `os` (`POST /api/auth/device/start`) and opens the
@@ -124,22 +125,29 @@ button.
 
 ### Milestone 2
 
-Before anything is shown, the broker asks whether the person's login already
-produced an `os` session: `broker::LoginSession`, given to `Broker::new`. In
-milestone 1 nothing does (`NoLoginSession`), so a computer with no stored
-session always gets the window. M2's PAM login fills it: once accounts come
-from the enterprise, signing in to the computer signs it in to Mauvely, and
-the window appears only for a purely local account.
+Before anything is shown, the broker asks whether the person's login
+produced an `os` session: `broker::LoginSession`, given to `Broker::new`.
+`broker::login::HandOff` reads the one `mauvelyd` hands over when a person
+signs in at the login screen with their Mauvely account
+(`/run/mauvely/login/<uid>`, `docs/login.md`, "The hand-off"), and deletes
+it. A purely local account has none, and gets the window as before.
 
-- A login's session is taken only for this computer's accounts origin and
-  before its expiry; otherwise the window is shown as today.
-- It is held for that login, in memory, and not sealed: whether a login's
-  session is kept like a linked one is M2's to decide.
-- A stored, linked session is still read first. Whether a login's session
-  should replace it is M2's too.
-- Tests: `today_no_login_produces_a_session`,
+- **The login's session comes first** and replaces a stored one: it is the
+  newest, and the login revoked the session the last login on this computer
+  made. It is sealed into `os.cred` as a linked one is, so a restart of the
+  helper keeps it.
+- It is taken only for this computer's accounts origin and before its
+  expiry; otherwise the stored session is read, and the window shown as
+  today when there is none.
+- Only a regular file of the person's own uid, mode `0600`, opened without
+  following a link: the directory is `01733`.
+- `OsSession.email` holds the person's handle: the login does not say the
+  address, and nothing sends it on.
+- Tests: `without_a_login_session_or_a_link_the_link_is_offered`,
   `a_session_from_the_login_needs_no_link`,
-  `a_login_session_for_another_server_or_expired_is_not_taken`.
+  `a_session_from_the_login_replaces_the_stored_one`,
+  `a_login_session_for_another_server_or_expired_is_not_taken`, and
+  `broker::login`'s.
 
 ### The accounts origin
 
