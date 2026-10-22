@@ -31,7 +31,9 @@ A Cargo workspace with two crates:
 - `crates/mauvely-session`: a binary, run as the person by the user unit
   `dist/mauvely-session.service`. It tells them when a restart finishes an
   update (brief 22, U2), is the sign-in broker (S2): `docs/broker.md`, and
-  says when an app the agent installed is ready.
+  says when an app the agent installed is ready. At each sign-in,
+  `dist/mauvely-look.service` runs it once with `--before-shell`, before
+  Plasma's shell starts: the one moment a panel reset can happen.
 
 `mauvelyd`'s modules:
 
@@ -53,7 +55,7 @@ A Cargo workspace with two crates:
 |---|---|
 | `staged` | Whether an update is staged, and saying so once |
 | `ready` | "<App> is ready": the agent's `/run/mauvely/installed.json`, what this person has been told, and Open |
-| `look` | The collection's desktop preset, applied once per change of `/var/lib/mauvely-desktop/policy.json` with `plasma-apply-lookandfeel`, behind a trait |
+| `look` | The collection's desktop preset, applied once per change of `/var/lib/mauvely-desktop/policy.json` with `plasma-apply-lookandfeel` and the preset's `layoutdefaults`, and a panel reset before the shell starts, behind a trait |
 | `signin` | The sign-in window, `/usr/bin/mauvely-signin` (os-installer's `signin/`): started with the code on stdin, told to finish after the claim, `closed` read back |
 | `dialog` | The sign-in offer and code as `kdialog` windows, where the sign-in window is missing or fails; the code goes to kdialog on stdin |
 | `broker::caller` | Who may ask the broker for what, pure |

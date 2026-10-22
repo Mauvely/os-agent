@@ -103,9 +103,36 @@ trait OpenUri {
 }
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("--before-shell") {
+        return before_shell();
+    }
     let Err(e) = run();
     eprintln!("mauvely-session: {e}");
     ExitCode::FAILURE
+}
+
+/// `mauvely-look.service`, at each sign-in before Plasma's shell starts: the
+/// collection's preset, and a panel reset the admin asked for. Never fails the
+/// sign-in: what goes wrong is said, and tried again at the next one.
+fn before_shell() -> ExitCode {
+    let result = (|| -> Result<bool, Error> {
+        let state = state_home().ok_or("neither XDG_STATE_HOME nor HOME is an absolute path")?;
+        let config = config_home().ok_or("neither XDG_CONFIG_HOME nor HOME is an absolute path")?;
+        let session = Connection::session()?;
+        let plasma = look::Plasma::new(&session, config, &state);
+        look::check(
+            Path::new(look::POLICY),
+            &state.join("mauvely/look"),
+            &plasma,
+            look::When::BeforeShell,
+        )
+    })();
+    match result {
+        Ok(true) => eprintln!("mauvely-session: the collection's desktop preset is applied"),
+        Ok(false) => {}
+        Err(e) => eprintln!("mauvely-session: desktop preset, before the shell: {e}"),
+    }
+    ExitCode::SUCCESS
 }
 
 fn run() -> Result<std::convert::Infallible, Error> {
@@ -184,10 +211,16 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let ready_memory = state.join("mauvely/ready");
     std::thread::spawn(move || tell_apps_are_ready(&tell, &ready_memory, &openable));
 
-    let plasma = look::Plasma::new(&session);
+    let config = config_home().ok_or("neither XDG_CONFIG_HOME nor HOME is an absolute path")?;
+    let plasma = look::Plasma::new(&session, config, &state);
     let look_memory = state.join("mauvely/look");
     loop {
-        match look::check(Path::new(look::POLICY), &look_memory, &plasma) {
+        match look::check(
+            Path::new(look::POLICY),
+            &look_memory,
+            &plasma,
+            look::When::Session,
+        ) {
             Ok(true) => eprintln!("mauvely-session: the collection's desktop preset is applied"),
             Ok(false) => {}
             Err(e) => eprintln!("mauvely-session: desktop preset: {e}"),
@@ -541,6 +574,10 @@ fn absolute(var: &str) -> Option<PathBuf> {
 /// the base directory spec says.
 fn state_home() -> Option<PathBuf> {
     absolute("XDG_STATE_HOME").or_else(|| absolute("HOME").map(|h| h.join(".local/state")))
+}
+
+fn config_home() -> Option<PathBuf> {
+    absolute("XDG_CONFIG_HOME").or_else(|| absolute("HOME").map(|h| h.join(".config")))
 }
 
 /// `/etc/mauvely`.

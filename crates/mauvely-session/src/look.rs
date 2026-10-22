@@ -14,22 +14,26 @@
 //!   with the lock gone. Seen on the dev VM, 2026-10-22. The person was held to
 //!   the preset all along, so nothing they chose is lost.
 //!
-//! A new account has no memory, so it is applied at the first sign-in, with
-//! the preset's panels.
+//! A new account has no memory, so it is applied at the first sign-in.
+//!
+//! **Two moments.** `mauvely-look.service` runs this once at each sign-in,
+//! before Plasma's shell starts (`--before-shell`); the session's own loop
+//! looks every few minutes after that.
 //!
 //! **Panels** (brief 25, Timur 2026-10-22): a preset change keeps people's
 //! panels, and an admin can reset them to the preset's layout. The policy's
 //! `panels_version` moves for a reset, and is remembered beside the rest.
-//! - **A reset** is `plasma-apply-lookandfeel --resetLayout`, which lays out
-//!   the preset's panels. It works with the layout locked (tried on the dev
-//!   VM, 2026-10-22). Plasma's shell does the laying out, so a reset waits for
-//!   it at a sign-in.
+//! - **A reset happens before the shell starts:** the person's layout is set
+//!   aside, and the shell lays out the preset's, as it does for a new account.
+//!   A running shell with the layout locked refuses a layout, and says nothing:
+//!   `plasma-apply-lookandfeel --resetLayout` exits 0 and changes nothing
+//!   (tried on the dev VM, 2026-10-22). So a reset waits for the next sign-in.
 //! - **The window settings** a preset carries (the title-bar buttons, Breeze's
-//!   corner radius and menu opacity) are applied from its `layoutdefaults`
-//!   after either, and KWin is told to read them again. Plasma 6.7's
-//!   `plasma-apply-lookandfeel` applies no `layoutdefaults`, with a reset or
-//!   without (tried on the dev VM, 2026-10-22); the preset's layout script
-//!   writes the same keys, for System Settings' own switch.
+//!   corner radius and menu opacity) are applied from its `layoutdefaults`,
+//!   and KWin is told to read them again. Plasma 6.7's
+//!   `plasma-apply-lookandfeel` applies no `layoutdefaults` (tried on the dev
+//!   VM); the preset's layout script writes the same keys, for System
+//!   Settings' own switch.
 //!
 //! Applying is what System Settings does: `plasma-apply-lookandfeel`, which
 //! writes the theme's settings into the person's own config. Unlocked, they can
@@ -47,7 +51,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -102,16 +105,26 @@ impl Policy {
     }
 }
 
+/// When a look is taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum When {
+    /// At a sign-in, before Plasma's shell starts: the one moment panels can
+    /// be reset.
+    BeforeShell,
+    /// During the session.
+    Session,
+}
+
 /// The desktop's tools, so the order of things can be tested without Plasma.
 pub trait Look {
-    /// Puts the person on a global theme, and with `panels` on its panel
-    /// layout too.
-    fn apply(&self, theme: &str, panels: bool) -> Result<(), Error>;
+    /// Puts the person on a global theme.
+    fn apply(&self, theme: &str) -> Result<(), Error>;
     /// The theme's window settings from its `layoutdefaults`, which Plasma's
     /// apply does not write.
     fn window(&self, theme: &str) -> Result<(), Error>;
-    /// Waits a while for Plasma's shell, which lays panels out.
-    fn wait_for_shell(&self) -> Result<(), Error>;
+    /// Sets the person's panel layout aside, so the shell lays out the
+    /// preset's when it starts.
+    fn set_panels_aside(&self) -> Result<(), Error>;
     /// Writes a key of the `[KDE]` group in the person's `kdeglobals`.
     fn set(&self, key: &str, value: &str) -> Result<(), Error>;
     /// Restarts Plasma's day and night switcher.
@@ -121,7 +134,7 @@ pub trait Look {
 /// One look at the policy. Applies the preset when the policy is new to this
 /// person, and says whether it did. A failed apply is not remembered, so it is
 /// tried again at the next look.
-pub fn check(policy: &Path, memory: &Path, look: &dyn Look) -> Result<bool, Error> {
+pub fn check(policy: &Path, memory: &Path, look: &dyn Look, when: When) -> Result<bool, Error> {
     let policy: Policy = match fs::read(policy) {
         Ok(bytes) => {
             serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", policy.display()))?
@@ -136,23 +149,35 @@ pub fn check(policy: &Path, memory: &Path, look: &dyn Look) -> Result<bool, Erro
         Err(e) if e.kind() == ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
-    if remembered.as_ref() == Some(&(stamp.clone(), policy.panels_version)) {
+    let look_due = remembered.as_ref().is_none_or(|(look, _)| *look != stamp);
+    let panels_due = when == When::BeforeShell
+        && remembered
+            .as_ref()
+            .is_some_and(|(_, panels)| *panels != policy.panels_version);
+    if !look_due && !panels_due {
         return Ok(false);
     }
     let applied = match policy.preset {
         Some(preset) => {
-            // A new account gets the preset's panels; one that had them gets
-            // them again only when the admin resets them.
-            let panels = remembered.is_none_or(|(_, panels)| panels != policy.panels_version);
-            apply(preset, policy.lock.look, panels, look)?;
+            apply(preset, policy.lock.look, look)?;
+            if panels_due {
+                look.set_panels_aside()?;
+            }
             true
         }
         None => false,
     };
+    // A reset still owed, during a session, stays owed for the next sign-in.
+    // A new account owes none: its first shell lays out the preset it was just
+    // put on. With no preset there is nothing to reset to.
+    let panels = match &remembered {
+        Some((_, owed)) if !panels_due && policy.preset.is_some() => *owed,
+        _ => policy.panels_version,
+    };
     if let Some(dir) = memory.parent() {
         crate::private_dir(dir)?;
     }
-    fs::write(memory, format!("{stamp} {}\n", policy.panels_version))?;
+    fs::write(memory, format!("{stamp} {panels}\n"))?;
     Ok(applied)
 }
 
@@ -167,15 +192,12 @@ fn remembered(text: &str) -> Option<(String, u64)> {
     Some((fields[..3].join(" "), panels))
 }
 
-fn apply(preset: Preset, look_locked: bool, panels: bool, look: &dyn Look) -> Result<(), Error> {
+fn apply(preset: Preset, look_locked: bool, look: &dyn Look) -> Result<(), Error> {
     let theme = match preset {
         Preset::Mauvely => MAUVELY_LIGHT,
         Preset::Plasma => PLASMA,
     };
-    if panels {
-        look.wait_for_shell()?;
-    }
-    look.apply(theme, panels)?;
+    look.apply(theme)?;
     look.window(theme)?;
     match preset {
         Preset::Mauvely => {
@@ -201,7 +223,11 @@ fn apply(preset: Preset, look_locked: bool, panels: bool, look: &dyn Look) -> Re
     gen_async = false
 )]
 trait Kded {
+    // kded's methods are camelCase; zbus would ask for `LoadModule`, which
+    // kded answers with UnknownMethod (seen on the dev VM, 2026-10-22).
+    #[zbus(name = "loadModule")]
     fn load_module(&self, obj: &str) -> zbus::Result<bool>;
+    #[zbus(name = "unloadModule")]
     fn unload_module(&self, obj: &str) -> zbus::Result<bool>;
 }
 
@@ -212,41 +238,58 @@ trait Kded {
     gen_async = false
 )]
 trait KWin {
+    #[zbus(name = "reconfigure")]
     fn reconfigure(&self) -> zbus::Result<()>;
 }
 
-/// Plasma's shell on the session bus.
-const SHELL: &str = "org.kde.plasmashell";
-/// How long a reset waits for the shell, and how often it looks.
-const SHELL_WAIT: Duration = Duration::from_secs(60);
-const SHELL_POLL: Duration = Duration::from_secs(2);
+/// The shell's layout, in the person's config: what a reset sets aside.
+pub const PANEL_FILES: [&str; 2] = ["plasma-org.kde.plasma.desktop-appletsrc", "plasmashellrc"];
 
-/// Plasma's own tools, by argv, and kded, KWin and the bus itself over the
-/// session bus.
+/// Plasma's own tools, by argv, and kded and KWin over the session bus.
 pub struct Plasma {
     kded: Option<KdedProxy<'static>>,
     kwin: Option<KWinProxy<'static>>,
-    bus: Option<zbus::blocking::fdo::DBusProxy<'static>>,
+    /// The person's `$XDG_CONFIG_HOME`, and where a reset keeps the layout it
+    /// set aside.
+    config: PathBuf,
+    aside: PathBuf,
 }
 
 impl Plasma {
-    pub fn new(session: &zbus::blocking::Connection) -> Self {
+    pub fn new(session: &zbus::blocking::Connection, config: PathBuf, state: &Path) -> Self {
         Plasma {
             kded: KdedProxy::new(session).ok(),
             kwin: KWinProxy::new(session).ok(),
-            bus: zbus::blocking::fdo::DBusProxy::new(session).ok(),
+            config,
+            aside: state.join("mauvely/panels-before-reset"),
         }
     }
 }
 
-pub fn apply_argv(theme: &str, panels: bool) -> Vec<String> {
-    let mut argv: Vec<String> = ["plasma-apply-lookandfeel", "-a", theme]
+pub fn apply_argv(theme: &str) -> Vec<String> {
+    ["plasma-apply-lookandfeel", "-a", theme]
         .map(String::from)
-        .to_vec();
-    if panels {
-        argv.push("--resetLayout".into());
+        .to_vec()
+}
+
+/// Moves the layout files from `config` into `aside`, replacing what an earlier
+/// reset kept there. A file that is not there is fine: a layout never saved.
+pub fn panels_aside(config: &Path, aside: &Path) -> Result<(), Error> {
+    if let Some(parent) = aside.parent() {
+        crate::private_dir(parent)?;
     }
-    argv
+    crate::private_dir(aside)?;
+    for name in PANEL_FILES {
+        let from = config.join(name);
+        match fs::rename(&from, aside.join(name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                let _ = fs::remove_file(aside.join(name));
+            }
+            Err(e) => return Err(format!("{}: {e}", from.display()).into()),
+        }
+    }
+    Ok(())
 }
 
 /// One key a `layoutdefaults` sets: `[file][group]…` then `key=value`.
@@ -349,8 +392,12 @@ pub fn set_argv(key: &str, value: &str) -> Vec<String> {
 }
 
 impl Look for Plasma {
-    fn apply(&self, theme: &str, panels: bool) -> Result<(), Error> {
-        run(&apply_argv(theme, panels))
+    fn apply(&self, theme: &str) -> Result<(), Error> {
+        run(&apply_argv(theme))
+    }
+
+    fn set_panels_aside(&self) -> Result<(), Error> {
+        panels_aside(&self.config, &self.aside)
     }
 
     fn window(&self, theme: &str) -> Result<(), Error> {
@@ -369,22 +416,6 @@ impl Look for Plasma {
             eprintln!("mauvely-session: KWin was not told to reconfigure: {e}");
         }
         Ok(())
-    }
-
-    fn wait_for_shell(&self) -> Result<(), Error> {
-        let bus = self.bus.as_ref().ok_or("no session bus")?;
-        let name = zbus::names::BusName::try_from(SHELL)?;
-        let mut waited = Duration::ZERO;
-        loop {
-            if bus.name_has_owner(name.clone())? {
-                return Ok(());
-            }
-            if waited >= SHELL_WAIT {
-                return Err("Plasma's shell is not running".into());
-            }
-            std::thread::sleep(SHELL_POLL);
-            waited += SHELL_POLL;
-        }
     }
 
     fn set(&self, key: &str, value: &str) -> Result<(), Error> {
@@ -428,15 +459,12 @@ mod tests {
         calls: RefCell<Vec<String>>,
         fail_apply: bool,
         fail_restart: bool,
-        no_shell: bool,
+        fail_aside: bool,
     }
 
     impl Look for Fake {
-        fn apply(&self, theme: &str, panels: bool) -> Result<(), Error> {
-            let panels = if panels { " with panels" } else { "" };
-            self.calls
-                .borrow_mut()
-                .push(format!("apply {theme}{panels}"));
+        fn apply(&self, theme: &str) -> Result<(), Error> {
+            self.calls.borrow_mut().push(format!("apply {theme}"));
             if self.fail_apply {
                 return Err("plasma-apply-lookandfeel: exit status: 1".into());
             }
@@ -446,10 +474,10 @@ mod tests {
             self.calls.borrow_mut().push(format!("window {theme}"));
             Ok(())
         }
-        fn wait_for_shell(&self) -> Result<(), Error> {
-            self.calls.borrow_mut().push("shell".into());
-            if self.no_shell {
-                return Err("Plasma's shell is not running".into());
+        fn set_panels_aside(&self) -> Result<(), Error> {
+            self.calls.borrow_mut().push("aside".into());
+            if self.fail_aside {
+                return Err("plasmashellrc: Permission denied".into());
             }
             Ok(())
         }
@@ -508,7 +536,10 @@ mod tests {
             fs::write(self.memory(), line).unwrap();
         }
         fn check(&self, look: &Fake) -> Result<bool, Error> {
-            check(&self.policy(), &self.memory(), look)
+            check(&self.policy(), &self.memory(), look, When::Session)
+        }
+        fn check_at_sign_in(&self, look: &Fake) -> Result<bool, Error> {
+            check(&self.policy(), &self.memory(), look, When::BeforeShell)
         }
     }
 
@@ -518,19 +549,9 @@ mod tests {
         }
     }
 
-    /// The preset applied to someone who has it already, keeping panels.
+    /// The preset applied, keeping panels.
     const MAUVELY_UNLOCKED: [&str; 6] = [
         "apply com.mauvely.light.desktop",
-        "window com.mauvely.light.desktop",
-        "set DefaultLightLookAndFeel=com.mauvely.light.desktop",
-        "set DefaultDarkLookAndFeel=com.mauvely.dark.desktop",
-        "set AutomaticLookAndFeel=true",
-        "restart",
-    ];
-    /// The preset applied to a new account, panels and all.
-    const MAUVELY_NEW: [&str; 7] = [
-        "shell",
-        "apply com.mauvely.light.desktop with panels",
         "window com.mauvely.light.desktop",
         "set DefaultLightLookAndFeel=com.mauvely.light.desktop",
         "set DefaultDarkLookAndFeel=com.mauvely.dark.desktop",
@@ -553,7 +574,7 @@ mod tests {
         rig.write(1, "\"mauvely\"", false);
         let look = Fake::default();
         assert!(rig.check(&look).unwrap());
-        assert_eq!(look.take(), MAUVELY_NEW);
+        assert_eq!(look.take(), MAUVELY_UNLOCKED);
         assert_eq!(
             fs::read_to_string(rig.memory()).unwrap(),
             "1 mauvely open 0\n"
@@ -615,8 +636,7 @@ mod tests {
         assert_eq!(
             look.take(),
             [
-                "shell",
-                "apply com.mauvely.light.desktop with panels",
+                "apply com.mauvely.light.desktop",
                 "window com.mauvely.light.desktop",
                 "restart"
             ]
@@ -669,18 +689,14 @@ mod tests {
         };
         assert!(rig.check(&failing).is_err());
         assert!(!rig.memory().exists());
-        assert_eq!(
-            failing.take(),
-            ["shell", "apply com.mauvely.plasma.desktop with panels"]
-        );
+        assert_eq!(failing.take(), ["apply com.mauvely.plasma.desktop"]);
 
         let look = Fake::default();
         assert!(rig.check(&look).unwrap());
         assert_eq!(
             look.take(),
             [
-                "shell",
-                "apply com.mauvely.plasma.desktop with panels",
+                "apply com.mauvely.plasma.desktop",
                 "window com.mauvely.plasma.desktop",
                 "restart"
             ]
@@ -696,7 +712,7 @@ mod tests {
             ..Fake::default()
         };
         assert!(rig.check(&look).unwrap());
-        assert_eq!(look.take(), MAUVELY_NEW);
+        assert_eq!(look.take(), MAUVELY_UNLOCKED);
         assert_eq!(
             fs::read_to_string(rig.memory()).unwrap(),
             "1 mauvely open 0\n"
@@ -722,20 +738,11 @@ mod tests {
     #[test]
     fn plasmas_own_tools_by_argv() {
         assert_eq!(
-            apply_argv(MAUVELY_LIGHT, false),
+            apply_argv(MAUVELY_LIGHT),
             [
                 "plasma-apply-lookandfeel",
                 "-a",
                 "com.mauvely.light.desktop"
-            ]
-        );
-        assert_eq!(
-            apply_argv(PLASMA, true),
-            [
-                "plasma-apply-lookandfeel",
-                "-a",
-                "com.mauvely.plasma.desktop",
-                "--resetLayout"
             ]
         );
         assert_eq!(
@@ -754,57 +761,118 @@ mod tests {
     }
 
     #[test]
-    fn a_reset_puts_panels_back_once_and_a_memory_from_before_panels_is_kept() {
+    fn a_reset_waits_for_the_next_sign_in_and_happens_once() {
         let rig = Rig::new();
         let look = Fake::default();
-        // What the session before panels remembered: three fields.
+        // What the session before panels remembered: three fields. The
+        // upgrade applies nothing, at a sign-in or after.
         rig.remember("3 plasma open\n");
         rig.write(3, "\"plasma\"", false);
-        assert!(!rig.check(&look).unwrap(), "an upgrade applies nothing");
+        assert!(!rig.check_at_sign_in(&look).unwrap());
+        assert!(!rig.check(&look).unwrap());
         assert!(look.take().is_empty());
 
+        // The admin resets panels. A running shell can't take it.
         rig.write_panels(3, "\"plasma\"", false, 1);
+        assert!(!rig.check(&look).unwrap());
+        assert!(look.take().is_empty());
+
+        // A preset change meanwhile is applied, and the reset is still owed.
+        rig.write_panels(4, "\"mauvely\"", false, 1);
         assert!(rig.check(&look).unwrap());
+        assert_eq!(look.take(), MAUVELY_UNLOCKED);
+        assert_eq!(
+            fs::read_to_string(rig.memory()).unwrap(),
+            "4 mauvely open 0\n"
+        );
+
+        // At the next sign-in, before the shell: the preset, then its layout
+        // set aside for the shell to lay out the preset's. Applied first, so a
+        // failed apply leaves the person's panels where they were.
+        assert!(rig.check_at_sign_in(&look).unwrap());
         assert_eq!(
             look.take(),
             [
-                "shell",
-                "apply com.mauvely.plasma.desktop with panels",
+                "apply com.mauvely.light.desktop",
+                "window com.mauvely.light.desktop",
+                "set DefaultLightLookAndFeel=com.mauvely.light.desktop",
+                "set DefaultDarkLookAndFeel=com.mauvely.dark.desktop",
+                "set AutomaticLookAndFeel=true",
+                "restart",
+                "aside"
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(rig.memory()).unwrap(),
+            "4 mauvely open 1\n"
+        );
+        assert!(!rig.check_at_sign_in(&look).unwrap());
+        assert!(!rig.check(&look).unwrap());
+        assert!(look.take().is_empty());
+    }
+
+    #[test]
+    fn a_new_account_owes_no_reset() {
+        let rig = Rig::new();
+        let look = Fake::default();
+        rig.write_panels(2, "\"plasma\"", true, 5);
+        assert!(rig.check_at_sign_in(&look).unwrap());
+        assert_eq!(
+            look.take(),
+            [
+                "apply com.mauvely.plasma.desktop",
                 "window com.mauvely.plasma.desktop",
                 "restart"
             ]
         );
         assert_eq!(
             fs::read_to_string(rig.memory()).unwrap(),
-            "3 plasma open 1\n"
+            "2 plasma locked 5\n"
         );
-        assert!(!rig.check(&look).unwrap());
-        assert!(look.take().is_empty());
-
-        // A preset change after the reset keeps the panels it reset.
-        rig.write_panels(4, "\"mauvely\"", false, 1);
-        rig.check(&look).unwrap();
-        assert_eq!(look.take(), MAUVELY_UNLOCKED);
     }
 
     #[test]
-    fn a_reset_with_no_shell_is_not_remembered_and_is_tried_again() {
+    fn a_reset_that_cannot_set_the_layout_aside_is_tried_again() {
         let rig = Rig::new();
         rig.remember("3 mauvely open 0\n");
         rig.write_panels(3, "\"mauvely\"", false, 1);
-        let early = Fake {
-            no_shell: true,
+        let stuck = Fake {
+            fail_aside: true,
             ..Fake::default()
         };
-        assert!(rig.check(&early).is_err());
-        assert_eq!(early.take(), ["shell"]);
+        assert!(rig.check_at_sign_in(&stuck).is_err());
         assert_eq!(
             fs::read_to_string(rig.memory()).unwrap(),
             "3 mauvely open 0\n"
         );
         let look = Fake::default();
-        assert!(rig.check(&look).unwrap());
-        assert_eq!(look.take(), MAUVELY_NEW);
+        assert!(rig.check_at_sign_in(&look).unwrap());
+        assert!(look.take().contains(&"aside".to_owned()));
+    }
+
+    #[test]
+    fn the_layout_is_set_aside_replacing_the_last_one_kept() {
+        let rig = Rig::new();
+        let config = rig.dir.join("config");
+        let aside = rig.dir.join("state/mauvely/panels-before-reset");
+        fs::create_dir_all(&config).unwrap();
+        fs::write(config.join(PANEL_FILES[0]), "new layout").unwrap();
+        fs::create_dir_all(&aside).unwrap();
+        fs::write(aside.join(PANEL_FILES[0]), "older layout").unwrap();
+        fs::write(aside.join(PANEL_FILES[1]), "older shell").unwrap();
+        // No plasmashellrc: a layout never saved is fine.
+        panels_aside(&config, &aside).unwrap();
+        assert!(!config.join(PANEL_FILES[0]).exists());
+        assert_eq!(
+            fs::read_to_string(aside.join(PANEL_FILES[0])).unwrap(),
+            "new layout"
+        );
+        assert!(!aside.join(PANEL_FILES[1]).exists());
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&aside).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 
     #[test]

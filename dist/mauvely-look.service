@@ -1,0 +1,19 @@
+[Unit]
+Description=Mauvely desktop preset, before Plasma's shell
+Documentation=https://github.com/Mauvely/os-agent
+# At each sign-in, before plasmashell lays the desktop out: the collection's
+# preset, and a panel reset the admin asked for. A running shell with the
+# layout locked refuses a new layout without a word, so a reset is done here,
+# by setting the person's layout aside for the shell to lay out the preset's.
+After=plasma-kwin_wayland.service
+Before=plasma-plasmashell.service
+PartOf=graphical-session.target
+ConditionPathExists=/var/lib/mauvely-desktop/policy.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mauvely-session --before-shell
+TimeoutStartSec=30s
+
+[Install]
+WantedBy=plasma-plasmashell.service
