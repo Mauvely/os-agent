@@ -1,7 +1,7 @@
 //! `mauvely-session`, the Mauvely OS helper in each graphical session. It
 //! runs as the person, from `dist/mauvely-session.service`.
 //!
-//! It does four things:
+//! It does five things:
 //! - when an update is staged, it says once that a restart finishes it, and
 //!   restarts when asked (brief 22, U2);
 //! - it is the sign-in broker: it links this computer to the person's
@@ -10,9 +10,13 @@
 //! - when the agent has installed an app, it says once that the app is ready,
 //!   and opens it when asked (`ready`);
 //! - when the collection's desktop preset changes, it puts the person on it,
-//!   once (`look`, brief 25).
+//!   once (`look`, brief 25);
+//! - it puts the browser extension's native host where Firefox and Chromium
+//!   look for it, so the extension can ask the broker for the browser's
+//!   session (`browserhost`, brief 22, S4).
 
 mod broker;
+mod browserhost;
 mod dialog;
 mod look;
 mod ready;
@@ -214,7 +218,9 @@ fn run() -> Result<std::convert::Infallible, Error> {
     let config = config_home().ok_or("neither XDG_CONFIG_HOME nor HOME is an absolute path")?;
     let plasma = look::Plasma::new(&session, config, &state);
     let look_memory = state.join("mauvely/look");
+    let mut host_error = String::new();
     loop {
+        place_browser_host(&mut host_error);
         match look::check(
             Path::new(look::POLICY),
             &look_memory,
@@ -250,6 +256,31 @@ fn run() -> Result<std::convert::Infallible, Error> {
             eprintln!("mauvely-session: {e}");
         }
         std::thread::sleep(POLL);
+    }
+}
+
+/// The browser extension's host, in each browser's own directory. An error is
+/// said when it changes, not every five minutes.
+fn place_browser_host(last_error: &mut String) {
+    let Some(home) = absolute("HOME") else {
+        return;
+    };
+    match browserhost::place(
+        Path::new(browserhost::SOURCE),
+        &home,
+        &browserhost::BROWSERS,
+    ) {
+        Ok(written) => {
+            last_error.clear();
+            for path in written {
+                eprintln!("mauvely-session: browser host: wrote {}", path.display());
+            }
+        }
+        Err(e) if e.to_string() != *last_error => {
+            eprintln!("mauvely-session: browser host: {e}");
+            *last_error = e.to_string();
+        }
+        Err(_) => {}
     }
 }
 

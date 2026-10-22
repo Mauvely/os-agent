@@ -253,6 +253,9 @@ impl Broker {
                 ),
             ),
             Request::Browser => (Ask::Browser, None, "a browser session".into()),
+            // Answered to whoever may have a browser session, and to nobody
+            // else: it is the browser extension's first question.
+            Request::Origin => (Ask::Browser, None, "the origin".into()),
         };
         let grant = match caller::authorise(caller, ask) {
             Ok(g) => g,
@@ -267,6 +270,10 @@ impl Broker {
                 });
             }
         };
+        if request == Request::Origin {
+            eprintln!("mauvely-session: broker: {what} to {who}");
+            return wire::origin(self.accounts.origin());
+        }
         match self.session_for(&grant, label) {
             Ok((session, how)) => {
                 eprintln!("mauvely-session: broker: {what} to {who}: {how}");

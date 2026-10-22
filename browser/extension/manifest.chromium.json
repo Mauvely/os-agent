@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Mauvely OS sign-in",
+  "version": "0.1.0",
+  "description": "Signs this browser in to Mauvely with the account this computer is linked to.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAh2og72vRWUBTSnTupGFgyMqvBaDGNKIMbXqek7WGQPicD/qUJQuKnKa4A211/LcKljKYvu2yf3TX2p7wIi8q8+KGHIFCy6tOwyHjaFLp0SQLV7omnisV8ARY+brb6c2ZzN7mYT0x45YpeVs4oR2UGRPb+cTbnTzGZMRoTe3SNjGbBF1YMFxQHUBFZkbL7NT083YRoCov3YPAekNRDM1VerJcMxT3KTa8FKuFgpAHjVJ0r9szvMAOxOA8BZSqDNEZjBPOpN2rw5HYeRl0XXAUT84P9Imj0JX8+GwLhXMXO8cGZ1XLJ4g5JLYjZj5SnElsNHz7IQpZxUr7UtlCVDmCzQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": ["nativeMessaging", "cookies"],
+  "host_permissions": ["https://*.mauvely.com/*", "https://*.mauvely.dev/*"],
+  "background": { "service_worker": "background.js" }
+}

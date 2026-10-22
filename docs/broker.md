@@ -194,6 +194,7 @@ before it says anything. Others have five seconds to send a line of at most
 ```jsonc
 {"v":1,"op":"token","client":"compose","label":"Compose on ada-laptop"}
 {"v":1,"op":"browser"}
+{"v":1,"op":"origin"}
 ```
 
 - `token`: an app session for `client`. `label` is optional, and becomes the
@@ -202,6 +203,10 @@ before it says anything. Others have five seconds to send a line of at most
 - `browser`: a browser session, for the extension to set as the
   `mauvely_session` cookie. Any `client` or `label` is ignored: the broker
   names it "Firefox on <hostname>" or "Chromium on <hostname>".
+- `origin`: which accounts origin this computer uses, and nothing else. The
+  browser extension's first question, so that it knows which cookie to look
+  for before it asks for a session (`docs/browser.md`). Answered to whoever may
+  have `browser`, signed in or not, without the server; mints nothing.
 
 Suite's `cloud-link` op is not served here: `unknown_op`.
 
@@ -209,6 +214,7 @@ Suite's `cloud-link` op is not served here: `unknown_op`.
 
 ```jsonc
 {"v":1,"ok":true,"token":"…","expiresAt":1771200000,"email":"ada@example.com","origin":"https://mauvely.com"}
+{"v":1,"ok":true,"origin":"https://mauvely.com"}
 {"v":1,"ok":false,"reason":"signed_out"}
 {"v":1,"ok":false,"reason":"sso_required","org":"northgate","start":"https://mauvely.com/api/auth/sso/start?org=northgate"}
 ```
@@ -225,7 +231,7 @@ that it is not its own.
 | `busy` | Sixteen callers already being served | Ask again shortly, or its own sign-in |
 | `unknown_client` | Not a client the server mints (`suite`, `os`, or unknown) | Its own sign-in |
 | `signed_out` | This computer is not linked, or the link has ended | Its own sign-in |
-| `sso_required` | The organisation enforces single sign-on and this computer's link was not approved from one | The browser extension opens `start` in a tab, which signs the browser in through the organisation. An app does its own sign-in |
+| `sso_required` | The organisation enforces single sign-on and this computer's link was not approved from one | Its own sign-in. The browser extension does nothing (it opens no tab by itself); the page's own sign-in goes through the organisation |
 | `app_not_allowed` | The organisation has turned that app off for the account | Show nothing; its own sign-in will be refused the same way |
 | `rate_limited` | The server's mint limit (30 app sessions an hour per account, 10 browser sessions an hour per `os` session) | Ask again later |
 | `refused` | The server said no for another reason | Its own sign-in |
@@ -257,7 +263,7 @@ The caller is the process at the other end of the socket:
 No `.flatpak-info` is a host process. Anything unreadable, gone or malformed
 is unidentified. Both are refused.
 
-| Caller | `token` for key K | `browser` |
+| Caller | `token` for key K | `browser`, `origin` |
 |---|---|---|
 | `com.mauvely.K`, `app-path` under `/var/lib/flatpak/app/com.mauvely.K/`, `/app` that deploy, from the remote `mauvely` | yes, K only | no |
 | `org.mozilla.firefox` or `org.chromium.Chromium`, `app-path` under `/var/lib/flatpak/app/<id>/`, `/app` that deploy, from any remote | no | yes |

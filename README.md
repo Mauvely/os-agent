@@ -12,7 +12,10 @@ button. When the agent has installed an app it shows "<App> is ready" once,
 with an Open button. It is also the sign-in broker: it links the computer to
 the person's Mauvely account once, in a window that shows Mauvely's own
 sign-in (`mauvely-signin`, from os-installer), then signs the Mauvely apps and
-the browsers in from that (`docs/broker.md`).
+the browsers in from that (`docs/broker.md`). For the browsers it places the
+native host of the Mauvely OS browser extension (`browser/`,
+`crates/mauvely-browser-host`, `docs/browser.md`), which sets the
+`mauvely_session` cookie from the computer's link.
 
 The login modules `pam_mauvely` and `nss_mauvely` follow in milestone 2. They
 talk only to the daemon over a local socket, never to the network.
@@ -25,6 +28,14 @@ Written in Rust. Licensed under the GNU GPL, version 3 or later.
 cargo build --release          # target/release/mauvelyd and mauvely-session
 cargo test                     # no root, TPM, flatpak or network needed
 cargo clippy --all-targets -- -D warnings
+node --test browser/extension/test/*.test.cjs   # the browser extension
+python3 -I browser/test_package.py              # its packaging
+```
+
+The browser host is built static for the browsers' sandboxes:
+
+```sh
+cargo build --release --locked -p mauvely-browser-host --target x86_64-unknown-linux-musl
 ```
 
 `CARGO_BUILD_JOBS=24` at most on a workstation, 8 on CI.

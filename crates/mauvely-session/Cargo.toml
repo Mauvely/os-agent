@@ -14,4 +14,8 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 zbus = "5"
 
 [dev-dependencies]
+# Already in the workspace, through mauvelyd: the Chromium extension's id is
+# checked against its key (`browserhost`).
+base64 = "0.23"
+sha2 = "0.11"
 tiny_http = "0.12"

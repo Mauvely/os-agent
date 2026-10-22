@@ -1,5 +1,143 @@
 # Handoff
 
+## 2026-10-22, evening: brief 22's S4, the browser extension
+
+Firefox and Chromium are signed in to mauvely.com from the computer's link.
+`docs/browser.md` has the design; this is what it does not say. `cargo test`
+passes (mauvely-browser-host 15 + 2, mauvely-session 137, mauvelyd 90 + 1 + 1),
+clippy and fmt are clean, `node --test browser/extension/test/*.test.cjs` (17)
+and `python3 -I browser/test_package.py` (13) pass. `Cargo.lock` gains only the
+new crate; no dependency is new. `agent.ref` in os-image is not touched.
+
+### What is new
+
+- **`browser/extension/`**: Manifest V3, one source, a manifest per browser.
+  Permissions `nativeMessaging`, `cookies`, `https://*.mauvely.com/*`,
+  `https://*.mauvely.dev/*`; a test holds them there and finds no `fetch(`,
+  `eval(` or the like in the source.
+- **`crates/mauvely-browser-host`**: the native host. std and serde_json, static
+  musl (476 KB, static-pie, no `NEEDED`, no interpreter).
+- **`mauvely-session`**:
+  - `browserhost` copies `/usr/libexec/mauvely/mauvely-browser-host` and writes
+    `com.mauvely.browser.json` into both browsers' directories, at login and
+    every 5 minutes;
+  - the broker answers a new op, `origin`, to the browsers alone
+    (`docs/broker.md`).
+- **`browser/package.py`**: the CRX3 (packed and signed here, no Chromium), AMO
+  signing, both policies. os-image's build runs it.
+
+### Decisions the brief left open
+
+- **How a sign-out is told from an expiry:** a removal of the domain cookie
+  with cause `expired_overwrite` or `explicit`, while the cookie had more than
+  60 s left, is a sign-out. `expired`, `evicted` or a removal at its expiry is
+  asked for again at once; `overwrite` is a new value. Chromium reports the
+  site's `Max-Age=0` as `expired_overwrite` and Firefox as `explicit`; both
+  were seen on the VM through a real `Set-Cookie`.
+- **"Until the browser restarts" is a session cookie,** `mauvely_os_held`, on
+  the accounts host at `/.mauvely-os-extension/`, a path the site never serves.
+  The background is stopped after half a minute idle in both browsers, so
+  memory alone would not hold; a `storage` permission was not on the brief's
+  list. The back-off note, `mauvely_os_wait`, is the same kind of cookie.
+- **Back-off:** 1, 2, 5, 15, 30, then 60 minutes; reset by a success or a
+  restart.
+- **The extension needs the origin before it can look for the cookie**, and
+  must not guess: so the broker's new `origin` op, which mints nothing. The
+  host cannot read `/etc/mauvely/server` from inside the sandbox.
+- **`sso_required` opens no tab** (`docs/broker.md` said it would). The page's
+  own sign-in goes through the organisation; the host does not pass `start` on.
+- **A page of the site that started loading without the cookie is reloaded**
+  once it is set, so the first page after a browser start is signed in.
+- **The host is placed for both browsers, installed or not,** as Plasma's own
+  browser integration already does in the same directories on the VM.
+- **Ids:** host `com.mauvely.browser`; Firefox `os-signin@mauvely.com`;
+  Chromium `ioajmohlalajkifjboclbjlinkkogcej`, **the throwaway key's**. The
+  key's private half is `~/.cache/mauvely-os/s4/crx-key.pem` on Timur's
+  workstation, never in a repository.
+- **Delivery is by the image, not refs in the Mauvely remote** (os-image's
+  `HANDOFF.md`): unmanaged Flatpak extensions, bind-mounted from
+  `/usr/share/mauvely/browser/`. The extension, its host and the broker then
+  move together, and the agent installs nothing.
+
+### Seen on `mauvely-01` (2026-10-22, `next` `sha256:1e1abf79…`, timuri linked to production)
+
+The release `mauvely-session` built here (Fedora 44, as the image builds it) ran
+as timuri's in place of the image's, with the host in `/usr/libexec/mauvely/`
+(the transient `/usr` overlay), and the staged trees bind-mounted by the two
+mount units (from `/run/systemd/system`, sourced from `/var/tmp`). Chromium
+156.0.8078.47 was installed system-wide from Flathub for the run; the agent
+granted it `xdg-run/mauvely:ro` on its own within a minute. Firefox 158.0.1 was
+there. Everything was undone afterwards (os-image's `HANDOFF.md` lists it).
+Screenshots and the journal lines are in the session scratchpad (`s4/shots/`),
+not committed.
+
+- **Placement:** at start the session wrote the host and manifest into
+  `/var/home/timuri/.var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts/`
+  and `…/org.mozilla.firefox/.mozilla/native-messaging-hosts/`, beside Plasma's
+  `org.kde.plasma.browser_integration.json`.
+- **Chromium, policy:** `chrome://policy` showed `ExtensionInstallForcelist`,
+  Platform, Machine, Mandatory, OK; the extension was installed from the
+  `file://` update manifest and the CRX this repo packs ("All forced extensions
+  seem to be installed"), as "installed by your administrator".
+- **Chromium, sign-in:** the extension asked `origin` then `browser`; the broker
+  minted "Chromium on mauvely-01"; the cookie was `.mauvely.com`, `/`, Secure,
+  HttpOnly, Lax, persistent to 2026-11-21. `https://mauvely.com/account`
+  showed timuri's account (Timur Inal, timur.suez). A fresh profile started
+  straight at `/account` was signed in on its first page.
+- **Sign-out holds** (no sign-out on mauvely.com was made: a stand-in at
+  `signout.mauvely.com`, mapped to the VM, answered with exactly
+  `clearCookies()`'s two `Set-Cookie` headers): Chromium logged
+  `signed out in the page (expired_overwrite)`, `/account` went to the sign-in
+  page, and after the worker had been stopped a navigation asked only
+  `origin`, minted nothing and stayed signed out. Closed and started again: one
+  ask, the broker answered from its cache, signed in.
+- **Refused:** an unpacked extension with another id got "Access to the
+  specified native messaging host is forbidden"; the host run inside
+  `io.mpv.Mpv` (system-wide from Flathub, granted `xdg-run/mauvely:ro` on the
+  command line) was refused by the broker for both ops ("io.mpv.Mpv may not ask
+  for it"), as were a host process and the runtime run as an app.
+- **Firefox, policy:** `org.mozilla.firefox.systemconfig` mounted
+  (`app-extensions=…systemconfig=local`), `Services.policies.status` 1,
+  about:policies listed `ExtensionSettings`, "Not fully applied": the unsigned
+  XPI was refused, `ERROR_SIGNEDSTATE_REQUIRED`, as expected without AMO.
+- **Firefox, temporary add-on** (Marionette, scratch profile): minted "Firefox on
+  mauvely-01", `/account` signed in; the stand-in's `Set-Cookie` was logged as
+  `signed out in the page (explicit)` and held; after a restart (the temporary
+  add-on installed again) it was signed in from the broker's cache. An
+  unlisted temporary add-on got "No such native application".
+- **Two mints in all** (one per browser), within the 10 an hour.
+- **Unmanaged extensions, the details:** a *link* at
+  `/var/lib/flatpak/extension/<name>` mounts for Firefox but not for Chromium,
+  and makes every `flatpak run` print GLib criticals (Flatpak 1.18.4, GLib
+  2.88.4); a dangling one is harmless for Chromium and would stop Firefox
+  starting. A real directory, or a bind mount, works for both, silently.
+
+### Never run
+
+- **Release Firefox with an AMO-signed XPI**: force-installed by policy, its
+  host permissions, `onStartup` after a restart. Needs Timur's AMO keys.
+- **AMO itself**: `package.py` has run only against a fake on loopback.
+- **An image carrying it on a machine**: the units from `/usr/lib/systemd/system`
+  at boot, the trees from `/usr/share`, a new extension version arriving with
+  an image (Chromium's update check, Firefox's newer-version install).
+- **A real sign-out on mauvely.com** (not made, by rule), and so the broker's
+  `/api/auth/me` check minting afresh after one; S2's tests cover that.
+- **The broker refusing** (`signed_out`, `rate_limited`) on the VM: timuri is
+  linked. The back-off is in the extension's tests.
+- mauvely.dev (staging) devices; the session restore that keeps the hold past
+  a restart.
+
+### What Timur provides
+
+- **`CRX_SIGNING_KEY`** (os-image Actions secret): an RSA key, PEM. It signs the
+  CRX at each `next` build. **It changes the Chromium id**: its public half goes
+  into `browser/extension/manifest.chromium.json` `key` and the new id into
+  `browserhost::CHROMIUM_ORIGIN` (`docs/browser.md`, "The ids").
+- **`AMO_JWT_ISSUER`, `AMO_JWT_SECRET`** (os-image Actions secrets): an
+  addons.mozilla.org API key on the account that will own
+  `os-signin@mauvely.com`. Used at each `next` build: the first signs the
+  version (unlisted), later ones download it again.
+
 ## 2026-10-22, night: the push channel
 
 `mauvelyd` keeps one WebSocket to its Durable Object in website-devices, so a

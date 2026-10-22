@@ -25,7 +25,7 @@ exactly as before.
 
 ## Layout
 
-A Cargo workspace with two crates:
+A Cargo workspace with three crates, and the browser extension beside it:
 - `crates/mauvelyd`: a library holding the logic and a thin binary
   (`main.rs`). The service unit is `dist/mauvelyd.service`.
 - `crates/mauvely-session`: a binary, run as the person by the user unit
@@ -34,6 +34,12 @@ A Cargo workspace with two crates:
   says when an app the agent installed is ready. At each sign-in,
   `dist/mauvely-look.service` runs it once with `--before-shell`, before
   Plasma's shell starts: the one moment a panel reset can happen.
+- `crates/mauvely-browser-host`: the browser extension's native messaging
+  host (brief 22, S4), a static musl binary the browsers run inside their
+  sandboxes. `docs/browser.md`.
+- `browser/`: the extension (`browser/extension/`, Manifest V3, one source for
+  Firefox and Chromium) and `package.py`, which makes the CRX, the signed XPI
+  and both browsers' policies for os-image.
 
 `mauvelyd`'s modules:
 
@@ -56,6 +62,7 @@ A Cargo workspace with two crates:
 | `staged` | Whether an update is staged, and saying so once |
 | `ready` | "<App> is ready": the agent's `/run/mauvely/installed.json`, what this person has been told, and Open |
 | `look` | The collection's desktop preset, applied once per change of `/var/lib/mauvely-desktop/policy.json` with `plasma-apply-lookandfeel` and the preset's `layoutdefaults`, and a panel reset before the shell starts, behind a trait |
+| `browserhost` | The browser extension's native host, copied with its manifest into each browser's `~/.var/app` directory at login and every 5 minutes |
 | `signin` | The sign-in window, `/usr/bin/mauvely-signin` (os-installer's `signin/`): started with the code on stdin, told to finish after the claim, `closed` read back |
 | `dialog` | The sign-in offer and code as `kdialog` windows, where the sign-in window is missing or fails; the code goes to kdialog on stdin |
 | `broker::caller` | Who may ask the broker for what, pure |
@@ -107,8 +114,10 @@ A Cargo workspace with two crates:
   on the machine but its own files in `$XDG_STATE_HOME/mauvely/` and its
   socket in `$XDG_RUNTIME_DIR/mauvely/`, asks logind for a reboot only when
   the person clicks Restart, and opens an app only when they click Open. The
-  one exception is the desktop preset (`look`), which writes the person's own
-  KDE config through Plasma's tools, once per change an admin makes.
+  exceptions are the desktop preset (`look`), which writes the person's own
+  KDE config through Plasma's tools, once per change an admin makes, and the
+  browser host (`browserhost`): the binary and its manifest in each browser's
+  own `~/.var/app/<id>/` native messaging directory, and nothing else there.
 - **`/var/lib/mauvely-desktop` is the agent's, not `/var/lib/mauvely`**, which
   systemd keeps `0700` (`StateDirectoryMode`), so nobody else could read a
   policy under it. It is `0755` with `0644` files, written by `desktop`, and
@@ -119,6 +128,23 @@ A Cargo workspace with two crates:
   tests. `BROKERABLE` is never narrower than website-main's `KNOWN_CLIENTS`
   without `suite` and `os`, and `BROWSERS` names the same browsers as
   mauvelyd's `reconcile::BROWSERS`.
+- **The browser extension fetches nothing and holds no remote code.** Its
+  permissions are `nativeMessaging`, `cookies` and the two accounts domains,
+  and a test holds them there. It sets a cookie only for the origin the host
+  names, and the host passes on only `https://mauvely.com` and
+  `https://mauvely.dev`.
+- **`mauvely-browser-host` is std and serde_json, and never touches the
+  network.** It runs inside the browser's sandbox from the person's
+  `~/.var/app`, so it is built static for `x86_64-unknown-linux-musl`
+  (`docs/browser.md`). It never logs what the broker says.
+- **The Chromium extension's id is its key.** `manifest.chromium.json`'s `key`
+  is a throwaway key's public half until the real `CRX_SIGNING_KEY` exists; a
+  new key means a new `key` there and a new `browserhost::CHROMIUM_ORIGIN`
+  (`docs/browser.md`, "The ids"). Bump `version` in both manifests with any
+  change to the extension: AMO signs a version once.
+- The extension's and the packaging's tests are not cargo's:
+  `node --test browser/extension/test/*.test.cjs` and
+  `python3 -I browser/test_package.py`.
 - `CARGO_BUILD_JOBS=24` at most here, 8 on CI.
 
 ## Handing off

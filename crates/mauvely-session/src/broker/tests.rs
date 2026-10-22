@@ -9,6 +9,7 @@ use super::{Clock, LoginSession, NoLoginSession, stale_after};
 
 const COMPOSE: &str = r#"{"v":1,"op":"token","client":"compose"}"#;
 const BROWSER: &str = r#"{"v":1,"op":"browser"}"#;
+const ORIGIN: &str = r#"{"v":1,"op":"origin"}"#;
 const ALIVE: &str = r#"{"user":{"id":"usr_1","email":"ada@example.com"}}"#;
 const DEAD: &str = r#"{"user":null,"totpSatisfied":false}"#;
 
@@ -426,6 +427,31 @@ fn server_refusals_are_passed_on() {
     // Nothing listening: unreachable, and nothing is cached.
     let f = Fixture::signed_in(vec![]);
     refused(&f.ask(&compose(), COMPOSE), "unreachable");
+}
+
+/// The browser extension's first question, so it knows which cookie to look
+/// for. Answered signed in or not, without the server, and only to a browser.
+#[test]
+fn the_origin_is_told_to_the_browsers_alone() {
+    for mut f in [Fixture::new(vec![]), Fixture::signed_in(vec![])] {
+        for browser in [firefox(), system_app("org.chromium.Chromium")] {
+            let a = f.ask(&browser, ORIGIN);
+            assert_eq!(
+                a,
+                serde_json::json!({"v":1,"ok":true,"origin":f.base}),
+                "{a}"
+            );
+        }
+        for caller in [
+            compose(),
+            super::caller::Caller::Host,
+            super::caller::Caller::Unknown("exited".into()),
+            system_app("org.mozilla.Firefox"),
+        ] {
+            refused(&f.ask(&caller, ORIGIN), "forbidden");
+        }
+        assert!(f.requests().is_empty());
+    }
 }
 
 #[test]

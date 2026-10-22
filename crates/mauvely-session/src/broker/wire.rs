@@ -5,7 +5,9 @@
 //! ```text
 //! → {"v":1,"op":"token","client":"compose","label":"Compose on ada-laptop"}
 //! → {"v":1,"op":"browser"}
+//! → {"v":1,"op":"origin"}
 //! ← {"v":1,"ok":true,"token":"…","expiresAt":1771200000,"email":"…","origin":"https://mauvely.com"}
+//! ← {"v":1,"ok":true,"origin":"https://mauvely.com"}
 //! ← {"v":1,"ok":false,"reason":"signed_out"}
 //! ← {"v":1,"ok":false,"reason":"sso_required","org":"northgate",
 //!    "start":"https://mauvely.com/api/auth/sso/start?org=northgate"}
@@ -42,6 +44,10 @@ pub enum Request {
     },
     /// A browser session.
     Browser,
+    /// Which accounts origin this computer uses, so the browser extension
+    /// knows which cookie to look for before it asks for a session. Mints
+    /// nothing, and is answered to the browsers alone.
+    Origin,
 }
 
 /// Parses one line. The refusal is the `reason` to answer with.
@@ -52,7 +58,7 @@ pub fn parse(line: &[u8]) -> Result<Request, Reason> {
     let raw: Raw = serde_json::from_slice(line.trim_ascii()).unwrap_or_default();
     let text = |v: &Value| v.as_str().unwrap_or_default().to_owned();
     let op = text(&raw.op);
-    if op != "token" && op != "browser" {
+    if !["token", "browser", "origin"].contains(&op.as_str()) {
         return Err(Reason::UnknownOp);
     }
     if raw.v.as_i64() != Some(VERSION) {
@@ -63,7 +69,8 @@ pub fn parse(line: &[u8]) -> Result<Request, Reason> {
             client: text(&raw.client),
             label: label(&text(&raw.label)),
         },
-        _ => Request::Browser,
+        "browser" => Request::Browser,
+        _ => Request::Origin,
     })
 }
 
@@ -155,6 +162,11 @@ pub fn granted(g: &Granted) -> Vec<u8> {
     }))
 }
 
+/// The answer to `origin`.
+pub fn origin(origin: &str) -> Vec<u8> {
+    line(json!({ "v": VERSION, "ok": true, "origin": origin }))
+}
+
 pub fn refused(reason: &Reason) -> Vec<u8> {
     let mut out = json!({ "v": VERSION, "ok": false, "reason": reason.code() });
     if let Reason::SsoRequired { org, start } = reason {
@@ -197,6 +209,7 @@ mod tests {
             })
         );
         assert_eq!(parse(br#"{"v":1,"op":"browser"}"#), Ok(Request::Browser));
+        assert_eq!(parse(br#"{"v":1,"op":"origin"}"#), Ok(Request::Origin));
         // A client on browser is ignored: the browser is the caller.
         assert_eq!(
             parse(br#"{"v":1,"op":"browser","client":"compose"}"#),
@@ -214,6 +227,7 @@ mod tests {
             br#"{"v":1}"#,
             br#"{"v":1,"op":"cloud-link","client":"snap"}"#,
             br#"{"v":1,"op":"TOKEN","client":"compose"}"#,
+            br#"{"v":1,"op":"Origin"}"#,
             br#"{"v":1,"op":1}"#,
             // The op first, even when the version is wrong too.
             br#"{"v":2,"op":"nope"}"#,
@@ -225,6 +239,7 @@ mod tests {
             br#"{"v":2,"op":"token","client":"compose"}"#,
             br#"{"v":"1","op":"browser"}"#,
             br#"{"v":1.5,"op":"browser"}"#,
+            br#"{"op":"origin"}"#,
         ] {
             assert_eq!(parse(line), Err(Reason::Version), "{line:?}");
         }
@@ -284,6 +299,10 @@ mod tests {
             ok,
             json!({"v":1,"ok":true,"token":"tok","expiresAt":1_771_200_000u64,
                    "email":"ada@example.com","origin":"https://mauvely.com"})
+        );
+        assert_eq!(
+            read(&origin("https://mauvely.dev")),
+            json!({"v":1,"ok":true,"origin":"https://mauvely.dev"})
         );
         assert_eq!(
             read(&refused(&Reason::SignedOut)),

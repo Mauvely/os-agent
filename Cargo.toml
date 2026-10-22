@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/mauvelyd", "crates/mauvely-session"]
+members = ["crates/mauvelyd", "crates/mauvely-session", "crates/mauvely-browser-host"]
 resolver = "3"
 
 [workspace.package]
